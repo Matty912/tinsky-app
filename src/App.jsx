@@ -12,7 +12,7 @@ import {
   DollarSign, ArrowUpDown, FileText, Lightbulb, TrendingUp, ExternalLink,
   Trophy, Share2, Square, RectangleVertical, BarChart3, MessageCircle,
   Send, Sparkles, AlertCircle, PartyPopper, CalendarDays, Wand2,
-  Palette, Frame, Tag, Activity, Rocket
+  Palette, Frame, Tag, Activity, Rocket, LogOut, Lock
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -140,6 +140,11 @@ function formatARS(n) {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function nowHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function estadoMeta(list, v) {
@@ -335,6 +340,8 @@ const defaultData = {
 };
 
 const CONTACTO = { instagram: "tinsky.ok", whatsapp: "116835739" };
+const AUTH_KEY = "tinsky-auth";
+const CREDENCIALES = { usuario: "tinsky.app", clave: "tinsky.2005" };
 
 const TIPOS_COMPRA = ["Filamento", "Repuesto / parte", "Insumo", "Otro"];
 const MEDIOS_PAGO = ["Efectivo", "Transferencia", "Mercado Pago", "Tarjeta", "Otro"];
@@ -345,11 +352,60 @@ function defaultTiers() {
   return CANTIDADES_MAYORISTA.map((cantidad) => ({ cantidad, habilitado: false, precio: "" }));
 }
 
+function LoginGate({ theme, onLogin }) {
+  const [usuario, setUsuario] = useState("");
+  const [clave, setClave] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (usuario.trim() === CREDENCIALES.usuario && clave === CREDENCIALES.clave) {
+      setError("");
+      onLogin();
+    } else {
+      setError("Usuario o contraseña incorrectos.");
+    }
+  };
+
+  return (
+    <div className="tinsky-root" data-theme={theme}>
+      <link rel="stylesheet" href={FONTS_LINK} />
+      <style>{CSS}</style>
+      <div className="login-wrap">
+        <form className="login-card" onSubmit={submit}>
+          <img src={LOGO_SRC} alt="Tinsky" className="login-logo" />
+          <h1>Tinsky</h1>
+          <p className="login-sub">Ingresá para ver tu taller</p>
+          <label>
+            Usuario
+            <input value={usuario} onChange={(e) => setUsuario(e.target.value)} autoFocus />
+          </label>
+          <label>
+            Contraseña
+            <input type="password" value={clave} onChange={(e) => setClave(e.target.value)} />
+          </label>
+          {error && <p className="login-error"><Lock size={12} /> {error}</p>}
+          <button type="submit" className="btn-accent" style={{ justifyContent: "center" }}>Entrar</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState(defaultData);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   const [tab, setTab] = useState("resumen");
   const [theme, setTheme] = useState("dark");
+  const [authOk, setAuthOk] = useState(() => {
+    try {
+      return localStorage.getItem(AUTH_KEY) === "ok";
+    } catch (e) {
+      return false;
+    }
+  });
 
   useEffect(() => {
     (async () => {
@@ -379,28 +435,42 @@ export default function App() {
     document.body.style.margin = "0";
   }, [theme]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const value = await storage.getItem(STORAGE_KEY);
-        if (value) {
-          const parsed = JSON.parse(value);
-          setData({ ...defaultData, ...parsed });
-        }
-      } catch (e) {
-        // no existing data yet
-      } finally {
-        setLoaded(true);
+  const cargarDatos = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const value = await storage.getItem(STORAGE_KEY);
+      // value === null acá significa "todavía no hay ninguna fila guardada"
+      // (por ejemplo la primera vez que se usa la app) — eso SÍ es un caso
+      // legítimo de "vacío". Si storage.getItem falla de verdad (red, DNS,
+      // permisos) ahora lanza un error en vez de devolver null, así que
+      // acá abajo nunca confundimos "sin datos" con "no pude leer los datos".
+      if (value) {
+        const parsed = JSON.parse(value);
+        setData({ ...defaultData, ...parsed });
       }
-    })();
+      setLoaded(true);
+    } catch (e) {
+      console.error("No se pudo cargar la información", e);
+      setLoadError(e.message || "No se pudo conectar con la base de datos.");
+      // OJO: a propósito NO seteamos loaded=true acá. Si la carga falla,
+      // la app se queda mostrando la pantalla de error/reintentar en vez
+      // de mostrar el taller vacío — así evitamos que cualquier cambio que
+      // hagas se guarde por encima de tus datos reales sin que vos lo sepas.
+    }
   }, []);
+
+  useEffect(() => {
+    cargarDatos();
+  }, [cargarDatos]);
 
   const persist = useCallback(async (next) => {
     setData(next);
     try {
       await storage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setSaveError(null);
     } catch (e) {
       console.error("No se pudo guardar", e);
+      setSaveError(e.message || "No se pudo guardar el último cambio.");
     }
   }, []);
 
@@ -436,7 +506,8 @@ export default function App() {
   const updatePurchase = (id, patch) => persist({ ...data, purchases: data.purchases.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
   const deletePurchase = (id) => persist({ ...data, purchases: data.purchases.filter((p) => p.id !== id) });
 
-  const addVenta = (item) => persist({ ...data, ventas: [...data.ventas, { id: uid(), fecha: item.fecha || todayISO(), ...item }] });
+  const addVenta = (item) => persist({ ...data, ventas: [...data.ventas, { id: uid(), fecha: item.fecha || todayISO(), ...item, hora: nowHHMM() }] });
+  const updateVenta = (id, patch) => persist({ ...data, ventas: data.ventas.map((v) => (v.id === id ? { ...v, ...patch } : v)) });
   const deleteVenta = (id) => persist({ ...data, ventas: data.ventas.filter((v) => v.id !== id) });
 
   const addPresupuesto = (item) => persist({ ...data, presupuestos: [...data.presupuestos, { id: uid(), fecha: item.fecha || todayISO(), estado: "pendiente", ...item }] });
@@ -492,6 +563,46 @@ export default function App() {
     { k: "ejecutivo", label: "Dashboard Ejecutivo", icon: Rocket },
   ];
 
+  if (!authOk) {
+    return (
+      <LoginGate
+        theme={theme}
+        onLogin={() => {
+          try {
+            localStorage.setItem(AUTH_KEY, "ok");
+          } catch (e) {
+            // si falla el storage, igual dejamos entrar por esta sesión
+          }
+          setAuthOk(true);
+        }}
+      />
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="tinsky-root" data-theme={theme}>
+        <link rel="stylesheet" href={FONTS_LINK} />
+        <style>{CSS}</style>
+        <div className="login-wrap">
+          <div className="login-card">
+            <AlertTriangle size={40} color="var(--danger)" />
+            <h1>No se pudo cargar tu taller</h1>
+            <p className="login-sub">
+              Hubo un problema de conexión con la base de datos y por seguridad no seguimos de largo —
+              así evitamos que se guarde algo encima de tus datos reales sin que te des cuenta.
+            </p>
+            <p className="login-error" style={{ marginBottom: 8 }}><Lock size={12} /> {loadError}</p>
+            <button className="btn-accent" onClick={cargarDatos} type="button">Reintentar</button>
+            <p className="hint" style={{ marginTop: 10 }}>
+              Si esto persiste, revisá tu conexión a internet. Tus datos siguen intactos en la base — nada se perdió.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="tinsky-root" data-theme={theme}>
       <link rel="stylesheet" href={FONTS_LINK} />
@@ -526,6 +637,18 @@ export default function App() {
             <button className="theme-toggle" onClick={toggleTheme} title="Cambiar modo claro/oscuro">
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </button>
+            <button
+              className="theme-toggle"
+              onClick={() => {
+                try {
+                  localStorage.removeItem(AUTH_KEY);
+                } catch (e) {}
+                setAuthOk(false);
+              }}
+              title="Cerrar sesión"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </aside>
 
@@ -536,6 +659,14 @@ export default function App() {
               {new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
             </div>
           </header>
+
+          {saveError && (
+            <div className="save-error-banner">
+              <AlertTriangle size={14} />
+              No se pudo guardar el último cambio ({saveError}). Puede que ese cambio no haya quedado guardado — revisá tu conexión y volvé a intentar la acción.
+              <button onClick={() => setSaveError(null)} type="button"><X size={13} /></button>
+            </div>
+          )}
 
           <main className="content">
             {!loaded ? (
@@ -551,7 +682,7 @@ export default function App() {
             ) : tab === "productos" ? (
               <Productos data={data} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} addVenta={addVenta} />
             ) : tab === "ventas" ? (
-              <Ventas data={data} deleteVenta={deleteVenta} />
+              <Ventas data={data} deleteVenta={deleteVenta} updateVenta={updateVenta} />
             ) : tab === "estadisticas" ? (
               <Estadisticas data={data} />
             ) : tab === "feria" ? (
@@ -1492,7 +1623,7 @@ function DashboardEjecutivo({ data, updateConfig }) {
               <div key={v.id} className="row-card">
                 <div className="row-main">
                   <p className="row-title">{v.nombre} <span className="dim">×{v.cantidad}</span></p>
-                  <p className="row-sub">{v.fecha} · {v.medioPago}</p>
+                  <p className="row-sub">{v.fecha}{v.hora ? ` · ${v.hora}` : ""} · {v.medioPago}</p>
                 </div>
                 <div className="row-side">
                   <p className="mono price">{formatARS(v.monto)}</p>
@@ -1551,7 +1682,7 @@ function DashboardEjecutivo({ data, updateConfig }) {
 
 // ============================= PEDIDOS =============================
 function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
-  const emptyForm = { cliente: "", producto: "", cantidad: 1, precioTotal: "", fechaEntrega: "", notas: "", pesoEstimado: "", tiempoEstimado: "" };
+  const emptyForm = { cliente: "", producto: "", cantidad: 1, precioTotal: "", fechaEntrega: "", notas: "", pesoEstimado: "", tiempoEstimado: "", costoEstimado: "" };
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [pagandoId, setPagandoId] = useState(null);
@@ -1626,6 +1757,10 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
               Tiempo estimado en horas (opcional)
               <input type="number" min="0" step="0.1" value={form.tiempoEstimado} onChange={(e) => setForm({ ...form, tiempoEstimado: e.target.value })} placeholder="Para el Dashboard de Producción" />
             </label>
+            <label>
+              Costo estimado en $ (opcional)
+              <input type="number" min="0" value={form.costoEstimado} onChange={(e) => setForm({ ...form, costoEstimado: e.target.value })} placeholder="Para calcular la ganancia real" />
+            </label>
           </div>
           <label className="full">
             Notas
@@ -1657,7 +1792,11 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
                   {o.pagado ? (
                     <span className="badge tone-success"><CheckCircle2 size={11} /> Pagado · {o.medioPago}</span>
                   ) : (
-                    <button className="btn-mini" onClick={() => setPagandoId(pagandoId === o.id ? null : o.id)}>
+                    <button className="btn-mini" onClick={() => {
+                      const abriendo = pagandoId !== o.id;
+                      setPagandoId(abriendo ? o.id : null);
+                      if (abriendo) setPago({ medioPago: MEDIOS_PAGO[0], costo: o.costoEstimado || "" });
+                    }}>
                       <DollarSign size={12} /> Marcar pagado
                     </button>
                   )}
@@ -1673,7 +1812,7 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
                     </select>
                   </label>
                   <label>
-                    Costo (opcional, para calcular ganancia)
+                    Costo (se precarga si lo cargaste al crear el pedido — revisalo antes de confirmar)
                     <input type="number" min="0" value={pago.costo} onChange={(e) => setPago({ ...pago, costo: e.target.value })} placeholder="ARS" />
                   </label>
                   <button className="btn-accent" onClick={() => confirmarPago(o)} type="button">Confirmar pago → pasa a Ventas</button>
@@ -1943,8 +2082,23 @@ function Compras({ data, addPurchase, deletePurchase }) {
 }
 
 // ============================= VENTAS =============================
-function Ventas({ data, deleteVenta }) {
+function etiquetaDia(fechaKey) {
+  const hoy = todayISO();
+  const ayerDate = new Date();
+  ayerDate.setDate(ayerDate.getDate() - 1);
+  const ayer = ayerDate.toISOString().slice(0, 10);
+  if (fechaKey === hoy) return "Hoy";
+  if (fechaKey === ayer) return "Ayer";
+  if (!fechaKey) return "Sin fecha";
+  const d = new Date(fechaKey + "T00:00:00");
+  const label = d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function Ventas({ data, deleteVenta, updateVenta }) {
   const [filtroMedio, setFiltroMedio] = useState("");
+  const [editandoId, setEditandoId] = useState(null);
+  const [edit, setEdit] = useState({ monto: "", costo: "", medioPago: MEDIOS_PAGO[0] });
   const ventas = data.ventas || [];
   const hoy = new Date();
   const mesActualLabel = `${NOMBRE_MES_LARGO[hoy.getMonth()]} de ${hoy.getFullYear()}`;
@@ -1952,22 +2106,48 @@ function Ventas({ data, deleteVenta }) {
   const filtradas = filtroMedio ? ventas.filter((v) => v.medioPago === filtroMedio) : ventas;
 
   const grupos = useMemo(() => {
-    const map = {};
+    const mapMes = {};
     filtradas.forEach((v) => {
-      const key = (v.fecha || "").slice(0, 7) || "sin-fecha";
-      if (!map[key]) map[key] = [];
-      map[key].push(v);
+      const keyMes = (v.fecha || "").slice(0, 7) || "sin-fecha";
+      if (!mapMes[keyMes]) mapMes[keyMes] = [];
+      mapMes[keyMes].push(v);
     });
-    return Object.entries(map)
+    return Object.entries(mapMes)
       .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([key, items]) => {
-        const [y, mm] = key.split("-");
-        const label = mm ? `${NOMBRE_MES_LARGO[Number(mm) - 1]} de ${y}` : "Sin fecha";
-        const sortedItems = [...items].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
-        const subtotalIngreso = items.reduce((acc, v) => acc + (Number(v.monto) || 0), 0);
-        return { key, label, items: sortedItems, subtotalIngreso };
+      .map(([keyMes, itemsMes]) => {
+        const [y, mm] = keyMes.split("-");
+        const labelMes = mm ? `${NOMBRE_MES_LARGO[Number(mm) - 1]} de ${y}` : "Sin fecha";
+        const subtotalMes = itemsMes.reduce((acc, v) => acc + (Number(v.monto) || 0), 0);
+
+        // sub-agrupar por día dentro del mes
+        const mapDia = {};
+        itemsMes.forEach((v) => {
+          const keyDia = v.fecha || "sin-fecha";
+          if (!mapDia[keyDia]) mapDia[keyDia] = [];
+          mapDia[keyDia].push(v);
+        });
+        const dias = Object.entries(mapDia)
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .map(([keyDia, itemsDia]) => ({
+            keyDia,
+            label: etiquetaDia(keyDia),
+            items: [...itemsDia].sort((a, b) => (b.hora || "").localeCompare(a.hora || "")),
+            subtotalDia: itemsDia.reduce((acc, v) => acc + (Number(v.monto) || 0), 0),
+          }));
+
+        return { key: keyMes, label: labelMes, dias, subtotalMes };
       });
   }, [filtradas]);
+
+  const empezarEdicion = (v) => {
+    setEditandoId(v.id);
+    setEdit({ monto: v.monto ?? "", costo: v.costo ?? "", medioPago: v.medioPago || MEDIOS_PAGO[0] });
+  };
+
+  const guardarEdicion = (id) => {
+    updateVenta(id, { monto: Number(edit.monto) || 0, costo: Number(edit.costo) || 0, medioPago: edit.medioPago });
+    setEditandoId(null);
+  };
 
   return (
     <div className="section">
@@ -1988,30 +2168,64 @@ function Ventas({ data, deleteVenta }) {
         <div key={g.key} className="venta-mes-group">
           <div className="venta-mes-header">
             <h3>{g.label}</h3>
-            <span className="mono venta-mes-subtotal">{formatARS(g.subtotalIngreso)}</span>
+            <span className="mono venta-mes-subtotal">{formatARS(g.subtotalMes)}</span>
           </div>
-          <div className="list">
-            {g.items.map((v) => (
-              <div key={v.id} className="row-card">
-                <div className="row-main">
-                  <p className="row-title">
-                    {v.nombre} <span className="dim">×{v.cantidad}</span>
-                    <span className={`badge inline-badge ${v.tipo === "producto" ? "tone-teal" : v.tipo === "presupuesto" ? "tone-warning" : "tone-violet"}`}>
-                      {v.tipo === "producto" ? "Producto" : v.tipo === "presupuesto" ? "Presupuesto" : "Pedido"}
-                    </span>
-                  </p>
-                  <p className="row-sub">{v.fecha} · {v.medioPago}</p>
-                </div>
-                <div className="row-side">
-                  <div className="venta-montos">
-                    <span className="mono price">{formatARS(v.monto)}</span>
-                    <span className="mono ganancia">+{formatARS((Number(v.monto) || 0) - (Number(v.costo) || 0))}</span>
-                  </div>
-                  <button className="icon-btn" onClick={() => deleteVenta(v.id)}><Trash2 size={14} /></button>
-                </div>
+
+          {g.dias.map((d) => (
+            <div key={d.keyDia} className="venta-dia-group">
+              <div className="venta-dia-header">
+                <span className="venta-dia-label">{d.label}</span>
+                <span className="mono venta-dia-subtotal">{formatARS(d.subtotalDia)}</span>
               </div>
-            ))}
-          </div>
+              <div className="list">
+                {d.items.map((v) => (
+                  <div key={v.id} className="row-card wrap">
+                    <div className="row-top">
+                      <div className="row-main">
+                        <p className="row-title">
+                          {v.nombre} <span className="dim">×{v.cantidad}</span>
+                          <span className={`badge inline-badge ${v.tipo === "producto" ? "tone-teal" : v.tipo === "presupuesto" ? "tone-warning" : "tone-violet"}`}>
+                            {v.tipo === "producto" ? "Producto" : v.tipo === "presupuesto" ? "Presupuesto" : "Pedido"}
+                          </span>
+                        </p>
+                        <p className="row-sub">
+                          {v.hora && <span className="venta-hora mono">{v.hora}</span>}
+                          {v.hora && " · "}{v.medioPago}
+                        </p>
+                      </div>
+                      <div className="row-side">
+                        <div className="venta-montos">
+                          <span className="mono price">{formatARS(v.monto)}</span>
+                          <span className="mono ganancia">+{formatARS((Number(v.monto) || 0) - (Number(v.costo) || 0))}</span>
+                        </div>
+                        <button className="icon-btn" onClick={() => (editandoId === v.id ? setEditandoId(null) : empezarEdicion(v))}><Pencil size={14} /></button>
+                        <button className="icon-btn" onClick={() => deleteVenta(v.id)}><Trash2 size={14} /></button>
+                      </div>
+                    </div>
+                    {editandoId === v.id && (
+                      <div className="pago-inline">
+                        <label>
+                          Monto
+                          <input type="number" min="0" value={edit.monto} onChange={(e) => setEdit({ ...edit, monto: e.target.value })} />
+                        </label>
+                        <label>
+                          Costo
+                          <input type="number" min="0" value={edit.costo} onChange={(e) => setEdit({ ...edit, costo: e.target.value })} />
+                        </label>
+                        <label>
+                          Medio de pago
+                          <select value={edit.medioPago} onChange={(e) => setEdit({ ...edit, medioPago: e.target.value })}>
+                            {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </label>
+                        <button className="btn-accent" onClick={() => guardarEdicion(v.id)} type="button">Guardar</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -2591,14 +2805,18 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
 
   const enviarAPedido = () => {
     if (!addOrder) return;
+    const cant = Number(cantidad) || 1;
     addOrder({
       cliente,
       producto: nombreProducto || "Pieza personalizada",
-      cantidad: Number(cantidad) || 1,
-      precioTotal: Math.round(recomendado * (Number(cantidad) || 1)),
+      cantidad: cant,
+      precioTotal: Math.round(recomendado * cant),
       fechaEntrega,
       estado: "pendiente",
       notas: "Generado desde la calculadora",
+      costoEstimado: Math.round(subtotal * cant),
+      pesoEstimado: Math.round(Number(peso || 0) * cant),
+      tiempoEstimado: Math.round(horasTotales * cant * 10) / 10,
     });
     setEnviado(true);
     setTimeout(() => setEnviado(false), 2500);
@@ -4177,6 +4395,20 @@ const CSS = `
 }
 .venta-mes-subtotal { font-size: 13px; font-weight: 700; color: var(--ink); }
 
+.venta-dia-group { margin-bottom: 16px; }
+.venta-dia-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.venta-dia-label { font-size: 12px; font-weight: 600; color: var(--ink); text-transform: capitalize; }
+.venta-dia-subtotal { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+.venta-hora { font-size: 11px; color: var(--ink-soft); opacity: 0.85; }
+
 .ideas-intro { color: var(--ink-soft); font-size: 13px; margin: 0 0 16px; max-width: 780px; }
 .ideas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .idea-card {
@@ -4469,6 +4701,71 @@ const CSS = `
   .ejecutivo-hero { grid-template-columns: 1fr; }
   .ejecutivo-grid { grid-template-columns: 1fr; }
 }
+
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  width: 100%;
+  max-width: 340px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.login-logo { width: 64px; height: 64px; object-fit: contain; }
+.login-card h1 { margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 22px; letter-spacing: 1px; }
+.login-sub { margin: -8px 0 6px; font-size: 13px; color: var(--ink-soft); }
+.login-card label {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.login-card input {
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+}
+.login-card .btn-accent { width: 100%; margin-top: 6px; }
+.login-error { display: flex; align-items: center; gap: 5px; color: var(--danger); font-size: 12px; margin: 0; }
+
+.save-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--danger);
+}
+.save-error-banner button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  opacity: 0.8;
+}
+.save-error-banner button:hover { opacity: 1; }
 
 @media (max-width: 860px) {
   .post-generator-grid { grid-template-columns: 1fr; }

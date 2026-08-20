@@ -3,6 +3,11 @@ import { supabase } from "./supabaseClient";
 const hasSupabase = !!supabase;
 
 export const storage = {
+  // IMPORTANTE: si falla la consulta a Supabase (red caída, DNS, etc.),
+  // esto TIENE que lanzar el error en vez de devolver null — devolver null
+  // acá se interpretaba como "todavía no hay datos guardados", lo cual
+  // hacía que la app siguiera de largo con un estado vacío y, al guardar
+  // cualquier cambio, pisara los datos reales que sí estaban en la base.
   async getItem(key) {
     if (hasSupabase) {
       const { data, error } = await supabase
@@ -11,8 +16,7 @@ export const storage = {
         .eq("key", key)
         .maybeSingle();
       if (error) {
-        console.error("Error leyendo de Supabase:", error);
-        return null;
+        throw new Error(`No se pudo leer "${key}" de Supabase: ${error.message || error.code || "error desconocido"}`);
       }
       return data ? data.value : null;
     }
@@ -21,10 +25,9 @@ export const storage = {
 
   async setItem(key, value) {
     if (hasSupabase) {
-      const { error } = await supabase.from("kv_store").upsert({ key, value });
+      const { error } = await supabase.from("kv_store").upsert({ key, value }, { onConflict: "key" });
       if (error) {
-        console.error("Error guardando en Supabase:", error);
-        return false;
+        throw new Error(`No se pudo guardar "${key}" en Supabase: ${error.message || error.code || "error desconocido"}`);
       }
       return true;
     }
