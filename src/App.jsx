@@ -313,7 +313,7 @@ const defaultData = {
   consumos: [],
   config: { horasImpresionDiarias: 4, multiplicadorValorNegocio: 2.5 },
   calculadoraState: {
-    open: { material: true, electricidad: true, amortizacion: false, margen: true },
+    open: { material: true, electricidad: true, amortizacion: false, extras: false, margen: true },
     destino: "producto",
     nombreProducto: "",
     cliente: "",
@@ -336,6 +336,9 @@ const defaultData = {
     margen: 40,
     envio: 0,
     comision: 0,
+    extras: [],
+    modoPrecio: "margen",
+    precioFinalManual: "",
   },
 };
 
@@ -702,7 +705,7 @@ export default function App() {
             ) : tab === "ejecutivo" ? (
               <DashboardEjecutivo data={data} updateConfig={updateConfig} />
             ) : (
-              <Calculadora stock={data.stock} addProduct={addProduct} addOrder={addOrder} calc={data.calculadoraState} updateCalc={updateCalculadoraState} />
+              <Calculadora stock={data.stock} purchases={data.purchases} addProduct={addProduct} addOrder={addOrder} calc={data.calculadoraState} updateCalc={updateCalculadoraState} />
             )}
           </main>
         </div>
@@ -1993,14 +1996,14 @@ function PrediccionStock({ data }) {
 
 // ============================= COMPRAS =============================
 function Compras({ data, addPurchase, deletePurchase }) {
-  const [form, setForm] = useState({ fecha: todayISO(), tipo: "Filamento", descripcion: "", proveedor: "", monto: "", notas: "" });
+  const [form, setForm] = useState({ fecha: todayISO(), tipo: "Filamento", descripcion: "", proveedor: "", monto: "", cantidad: 1, notas: "" });
   const [showForm, setShowForm] = useState(false);
 
   const submit = (e) => {
     e.preventDefault();
     if (!form.descripcion) return;
     addPurchase(form);
-    setForm({ fecha: todayISO(), tipo: "Filamento", descripcion: "", proveedor: "", monto: "", notas: "" });
+    setForm({ fecha: todayISO(), tipo: "Filamento", descripcion: "", proveedor: "", monto: "", cantidad: 1, notas: "" });
     setShowForm(false);
   };
 
@@ -2047,10 +2050,19 @@ function Compras({ data, addPurchase, deletePurchase }) {
               <input value={form.proveedor} onChange={(e) => setForm({ ...form, proveedor: e.target.value })} placeholder="Opcional" />
             </label>
             <label>
-              Monto (ARS)
+              Monto total (ARS)
               <input type="number" min="0" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} />
             </label>
+            <label>
+              Cantidad de unidades
+              <input type="number" min="1" value={form.cantidad} onChange={(e) => setForm({ ...form, cantidad: e.target.value })} placeholder="Ej: 5" />
+            </label>
           </div>
+          {Number(form.cantidad) > 1 && Number(form.monto) > 0 && (
+            <p className="hint">
+              💡 Eso da {formatARS(Number(form.monto) / Number(form.cantidad))} por unidad — se va a poder elegir así de precisa en la Calculadora.
+            </p>
+          )}
           <label className="full">
             Notas
             <input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
@@ -2063,11 +2075,17 @@ function Compras({ data, addPurchase, deletePurchase }) {
 
       <div className="list">
         {sorted.length === 0 && <p className="empty-note">Todavía no cargaste compras.</p>}
-        {sorted.map((p) => (
+        {sorted.map((p) => {
+          const cant = Number(p.cantidad) || 1;
+          const unitario = cant > 1 ? Number(p.monto) / cant : null;
+          return (
           <div key={p.id} className="row-card">
             <div className="row-main">
               <p className="row-title">{p.descripcion} <span className={`badge tone-teal inline-badge`}>{p.tipo}</span></p>
-              <p className="row-sub">{p.fecha} {p.proveedor ? `· ${p.proveedor}` : ""}</p>
+              <p className="row-sub">
+                {p.fecha} {p.proveedor ? `· ${p.proveedor}` : ""}
+                {unitario !== null && ` · ${cant} unidades · ${formatARS(unitario)} c/u`}
+              </p>
               {p.notas && <p className="row-notes">{p.notas}</p>}
             </div>
             <div className="row-side">
@@ -2075,7 +2093,8 @@ function Compras({ data, addPurchase, deletePurchase }) {
               <button className="icon-btn" onClick={() => deletePurchase(p.id)}><Trash2 size={14} /></button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2707,9 +2726,9 @@ function Slider({ label, value, onChange, min = 0, max = 100, step = 1, suffix =
   );
 }
 
-function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
+function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc }) {
   const c = calc || {};
-  const [open, setOpen] = useState(c.open || { material: true, electricidad: true, amortizacion: false, margen: true });
+  const [open, setOpen] = useState(c.open || { material: true, electricidad: true, amortizacion: false, extras: false, margen: true });
   const toggle = (k) => setOpen({ ...open, [k]: !open[k] });
 
   const [destino, setDestino] = useState(c.destino ?? "producto");
@@ -2740,6 +2759,24 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
   const [envio, setEnvio] = useState(c.envio ?? 0);
   const [comision, setComision] = useState(c.comision ?? 0);
 
+  const [extras, setExtras] = useState(c.extras && c.extras.length ? c.extras : []);
+  const [modoPrecio, setModoPrecio] = useState(c.modoPrecio ?? "margen");
+  const [precioFinalManual, setPrecioFinalManual] = useState(c.precioFinalManual ?? "");
+
+  const agregarExtra = () => setExtras((e) => [...e, { id: uid(), nombre: "", costo: "", compraId: "" }]);
+  const quitarExtra = (id) => setExtras((e) => e.filter((x) => x.id !== id));
+  const actualizarExtra = (id, patch) => setExtras((e) => e.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const elegirCompraParaExtra = (id, compraId) => {
+    const compra = (purchases || []).find((p) => p.id === compraId);
+    const cant = compra ? Number(compra.cantidad) || 1 : 1;
+    const costoUnitario = compra ? Math.round((Number(compra.monto) || 0) / cant) : "";
+    actualizarExtra(id, {
+      compraId,
+      nombre: compra ? compra.descripcion : "",
+      costo: costoUnitario,
+    });
+  };
+
   // Guarda automáticamente el estado de la calculadora para que quede tal
   // cual la dejaste la próxima vez que la abras (con un pequeño debounce
   // para no escribir en cada tecla que se presiona).
@@ -2756,6 +2793,7 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
           selStock, peso, precioKg, desperdicio, horas, minutos, potenciaW,
           precioKwh, valorHora, horasTrabajoPersonal, precioImpresora,
           vidaUtilHoras, mantenimientoMes, horasUsoMensual, margen, envio, comision,
+          extras, modoPrecio, precioFinalManual,
         });
       }
     }, 400);
@@ -2765,6 +2803,7 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
     selStock, peso, precioKg, desperdicio, horas, minutos, potenciaW,
     precioKwh, valorHora, horasTrabajoPersonal, precioImpresora,
     vidaUtilHoras, mantenimientoMes, horasUsoMensual, margen, envio, comision,
+    extras, modoPrecio, precioFinalManual,
   ]);
 
   useEffect(() => {
@@ -2780,11 +2819,19 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
   const amortPorHora = Number(vidaUtilHoras) > 0 ? Number(precioImpresora || 0) / Number(vidaUtilHoras) : 0;
   const mantPorHora = Number(horasUsoMensual) > 0 ? Number(mantenimientoMes || 0) / Number(horasUsoMensual) : 0;
   const costoAmortizacion = (amortPorHora + mantPorHora) * horasTotales;
+  const costoExtras = extras.reduce((acc, ex) => acc + (Number(ex.costo) || 0), 0);
 
-  const subtotal = costoMaterial + costoElectricidad + costoManoObra + costoAmortizacion;
+  const subtotal = costoMaterial + costoElectricidad + costoManoObra + costoAmortizacion + costoExtras;
   const minimo = subtotal + Number(envio || 0);
   const conMargen = minimo * (1 + Number(margen || 0) / 100);
-  const recomendado = Number(comision) < 100 ? conMargen / (1 - Number(comision || 0) / 100) : conMargen;
+  const recomendadoPorMargen = Number(comision) < 100 ? conMargen / (1 - Number(comision || 0) / 100) : conMargen;
+
+  // Modo "precio final": el usuario tipea el precio de venta y acá se
+  // calcula qué margen efectivo le queda, en vez de calcular el precio
+  // a partir de un margen que él define.
+  const precioFinalNum = Number(precioFinalManual) || 0;
+  const recomendado = modoPrecio === "precio" && precioFinalNum > 0 ? precioFinalNum : recomendadoPorMargen;
+  const margenResultante = minimo > 0 ? ((recomendado - minimo) / minimo) * 100 : null;
   const premium = recomendado * 1.2;
 
   const pct = (v) => (subtotal > 0 ? Math.round((v / subtotal) * 100) : 0);
@@ -2874,11 +2921,69 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
             <p className="hint">💡 Se divide el precio de la impresora entre su vida útil, más el mantenimiento proporcional por hora de uso.</p>
           </AccordionSection>
 
+          <AccordionSection icon={Plus} color="warning" title="Costos extra" subtitle="Cadenitas, portalámparas, etc." open={open.extras} onToggle={() => toggle("extras")}>
+            {extras.length === 0 && <p className="empty-note">Todavía no agregaste ningún costo extra.</p>}
+            {extras.map((ex) => (
+              <div key={ex.id} className="extra-row">
+                <div className="form-row">
+                  <label>
+                    Elegir de tus compras (opcional)
+                    <select value={ex.compraId} onChange={(e) => elegirCompraParaExtra(ex.id, e.target.value)}>
+                      <option value="">— cargar manualmente —</option>
+                      {(purchases || []).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.descripcion} ({Number(p.cantidad) > 1 ? `${formatARS(Number(p.monto) / Number(p.cantidad))} c/u` : formatARS(p.monto)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>
+                    Nombre
+                    <input value={ex.nombre} onChange={(e) => actualizarExtra(ex.id, { nombre: e.target.value })} placeholder="Ej: Cadenita" />
+                  </label>
+                  <label>
+                    Costo (ARS)
+                    <input type="number" min="0" value={ex.costo} onChange={(e) => actualizarExtra(ex.id, { costo: e.target.value })} placeholder="Ej: 300" />
+                  </label>
+                  <button type="button" className="icon-btn" onClick={() => quitarExtra(ex.id)}><X size={14} /></button>
+                </div>
+              </div>
+            ))}
+            <button type="button" className="btn-secondary" onClick={agregarExtra}>
+              <Plus size={14} /> Agregar costo extra
+            </button>
+            <p className="hint">💡 Si ya cargaste esa compra antes (por ejemplo cadenitas o portalámparas), elegila del desplegable para no tipear el costo a mano.</p>
+          </AccordionSection>
+
           <AccordionSection icon={Wallet} color="success" title="Margen de ganancia" subtitle="Envío y comisiones" open={open.margen} onToggle={() => toggle("margen")}>
-            <label>
-              Margen deseado (%)
-              <input type="number" min="0" value={margen} onChange={(e) => setMargen(e.target.value)} placeholder="Ej: 40" />
-            </label>
+            <div className="destino-toggle">
+              <button type="button" className={modoPrecio === "margen" ? "active" : ""} onClick={() => setModoPrecio("margen")}>
+                Definir por margen %
+              </button>
+              <button type="button" className={modoPrecio === "precio" ? "active" : ""} onClick={() => setModoPrecio("precio")}>
+                Definir por precio final $
+              </button>
+            </div>
+
+            {modoPrecio === "margen" ? (
+              <label>
+                Margen deseado (%)
+                <input type="number" min="0" value={margen} onChange={(e) => setMargen(e.target.value)} placeholder="Ej: 40" />
+              </label>
+            ) : (
+              <label>
+                Precio final de venta (ARS)
+                <input type="number" min="0" value={precioFinalManual} onChange={(e) => setPrecioFinalManual(e.target.value)} placeholder="Ej: 8000" />
+              </label>
+            )}
+            {modoPrecio === "precio" && precioFinalNum > 0 && (
+              <p className="hint">
+                💡 Con ese precio, tu margen resultante es {margenResultante !== null ? `${margenResultante.toFixed(0)}%` : "—"}.
+              </p>
+            )}
+
             <div className="form-row">
               <label>Gastos de envío (ARS)<input type="number" min="0" value={envio} onChange={(e) => setEnvio(e.target.value)} /></label>
               <label>Comisión plataforma (%)<input type="number" min="0" max="90" value={comision} onChange={(e) => setComision(e.target.value)} /></label>
@@ -2896,17 +3001,19 @@ function Calculadora({ stock, addProduct, addOrder, calc, updateCalc }) {
             <div className="pct-row"><span>Electricidad</span><div className="pct-track"><div className="pct-fill teal" style={{ width: `${pct(costoElectricidad)}%` }} /></div><span className="mono">{pct(costoElectricidad)}%</span></div>
             <div className="pct-row"><span>Amortización</span><div className="pct-track"><div className="pct-fill violet" style={{ width: `${pct(costoAmortizacion)}%` }} /></div><span className="mono">{pct(costoAmortizacion)}%</span></div>
             <div className="pct-row"><span>Mano de obra</span><div className="pct-track"><div className="pct-fill success" style={{ width: `${pct(costoManoObra)}%` }} /></div><span className="mono">{pct(costoManoObra)}%</span></div>
+            {costoExtras > 0 && <div className="pct-row"><span>Extras</span><div className="pct-track"><div className="pct-fill warning" style={{ width: `${pct(costoExtras)}%` }} /></div><span className="mono">{pct(costoExtras)}%</span></div>}
           </div>
 
           <div className="breakdown-row"><span>Material</span><span className="mono">{formatARS(costoMaterial)}</span></div>
           <div className="breakdown-row"><span>Electricidad</span><span className="mono">{formatARS(costoElectricidad)}</span></div>
           <div className="breakdown-row"><span>Amortización</span><span className="mono">{formatARS(costoAmortizacion)}</span></div>
           <div className="breakdown-row"><span>Mano de obra</span><span className="mono">{formatARS(costoManoObra)}</span></div>
+          {costoExtras > 0 && <div className="breakdown-row"><span>Costos extra</span><span className="mono">{formatARS(costoExtras)}</span></div>}
           <div className="breakdown-row"><span>Envío</span><span className="mono">{formatARS(envio)}</span></div>
 
           <div className="price-levels">
             <div className="level"><span>Mínimo</span><strong className="mono">{formatARS(minimo)}</strong></div>
-            <div className="level rec"><span>Recomendado</span><strong className="mono">{formatARS(recomendado)}</strong></div>
+            <div className="level rec"><span>{modoPrecio === "precio" ? "Tu precio" : "Recomendado"}</span><strong className="mono">{formatARS(recomendado)}</strong></div>
             <div className="level"><span>Premium</span><strong className="mono">{formatARS(premium)}</strong></div>
           </div>
 
@@ -3957,6 +4064,7 @@ const CSS = `
 .tone-chip-teal .chip { background: var(--teal-soft); color: var(--teal); }
 .tone-chip-violet .chip { background: var(--violet-soft); color: var(--violet); }
 .tone-chip-success .chip { background: var(--success-soft); color: var(--success); }
+.tone-chip-warning .chip { background: var(--warning-soft); color: var(--warning); }
 
 .slider-field { display: flex; flex-direction: column; gap: 6px; }
 .slider-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); font-weight: 500; }
@@ -3999,6 +4107,18 @@ const CSS = `
 .pct-fill.teal { background: var(--teal); }
 .pct-fill.violet { background: var(--violet); }
 .pct-fill.success { background: var(--success); }
+.pct-fill.warning { background: var(--warning); }
+
+.extra-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  margin-bottom: 8px;
+}
+.extra-row .form-row { align-items: flex-end; }
 
 .breakdown-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .breakdown-row.subtotal { font-weight: 600; border-bottom: 1px solid var(--ink); }
