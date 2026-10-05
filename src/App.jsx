@@ -2754,7 +2754,7 @@ function Slider({ label, value, onChange, min = 0, max = 100, step = 1, suffix =
 
 function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc }) {
   const c = calc || {};
-  const [open, setOpen] = useState(c.open || { material: true, electricidad: true, amortizacion: false, extras: false, margen: true });
+  const [open, setOpen] = useState({ bandejas: true, material: true, electricidad: true, amortizacion: false, extras: false, margen: true, ...(c.open || {}) });
   const toggle = (k) => setOpen({ ...open, [k]: !open[k] });
 
   const [destino, setDestino] = useState(c.destino ?? "producto");
@@ -2765,12 +2765,10 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const [enviado, setEnviado] = useState(false);
 
   const [selStock, setSelStock] = useState(c.selStock ?? "");
-  const [peso, setPeso] = useState(c.peso ?? 50);
+  const [bandejas, setBandejas] = useState(c.bandejas?.length ? c.bandejas : [{ id: uid(), cantidad: 1, gramos: c.peso ?? 50, horas: c.horas ?? 3, minutos: c.minutos ?? 0 }]);
   const [precioKg, setPrecioKg] = useState(c.precioKg ?? 15000);
   const [desperdicio, setDesperdicio] = useState(c.desperdicio ?? 10);
 
-  const [horas, setHoras] = useState(c.horas ?? 3);
-  const [minutos, setMinutos] = useState(c.minutos ?? 0);
   const [potenciaW, setPotenciaW] = useState(c.potenciaW ?? 150);
   const [precioKwh, setPrecioKwh] = useState(c.precioKwh ?? 120);
   const [valorHora, setValorHora] = useState(c.valorHora ?? 1000);
@@ -2788,6 +2786,10 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const [extras, setExtras] = useState(c.extras && c.extras.length ? c.extras : []);
   const [modoPrecio, setModoPrecio] = useState(c.modoPrecio ?? "margen");
   const [precioFinalManual, setPrecioFinalManual] = useState(c.precioFinalManual ?? "");
+
+  const agregarBandeja = () => setBandejas((items) => [...items, { id: uid(), cantidad: 1, gramos: "", horas: 0, minutos: 0 }]);
+  const quitarBandeja = (id) => setBandejas((items) => items.length > 1 ? items.filter((item) => item.id !== id) : items);
+  const actualizarBandeja = (id, patch) => setBandejas((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
 
   const agregarExtra = () => setExtras((e) => [...e, { id: uid(), nombre: "", costo: "", compraId: "" }]);
   const quitarExtra = (id) => setExtras((e) => e.filter((x) => x.id !== id));
@@ -2816,7 +2818,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       if (updateCalc) {
         updateCalc({
           open, destino, nombreProducto, cliente, cantidad, fechaEntrega,
-          selStock, peso, precioKg, desperdicio, horas, minutos, potenciaW,
+          selStock, bandejas, precioKg, desperdicio, potenciaW,
           precioKwh, valorHora, horasTrabajoPersonal, precioImpresora,
           vidaUtilHoras, mantenimientoMes, horasUsoMensual, margen, envio, comision,
           extras, modoPrecio, precioFinalManual,
@@ -2826,7 +2828,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
     return () => clearTimeout(t);
   }, [
     open, destino, nombreProducto, cliente, cantidad, fechaEntrega,
-    selStock, peso, precioKg, desperdicio, horas, minutos, potenciaW,
+    selStock, bandejas, precioKg, desperdicio, potenciaW,
     precioKwh, valorHora, horasTrabajoPersonal, precioImpresora,
     vidaUtilHoras, mantenimientoMes, horasUsoMensual, margen, envio, comision,
     extras, modoPrecio, precioFinalManual,
@@ -2838,8 +2840,12 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
     if (s) setPrecioKg(s.precioKg || 0);
   }, [selStock]);
 
-  const horasTotales = Number(horas || 0) + Number(minutos || 0) / 60;
-  const costoMaterial = (Number(peso) / 1000) * Number(precioKg || 0) * (1 + Number(desperdicio || 0) / 100);
+  const cantidadBandejas = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0), 0);
+  const peso = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0) * Math.max(0, Number(item.gramos) || 0), 0);
+  const horasTotales = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0) * (Math.max(0, Number(item.horas) || 0) + Math.max(0, Number(item.minutos) || 0) / 60), 0);
+  const horasPorBandeja = cantidadBandejas > 0 ? horasTotales / cantidadBandejas : 0;
+  const gramosPorBandeja = cantidadBandejas > 0 ? peso / cantidadBandejas : 0;
+  const costoMaterial = (peso / 1000) * Number(precioKg || 0) * (1 + Number(desperdicio || 0) / 100);
   const costoElectricidad = horasTotales * (Number(potenciaW || 0) / 1000) * Number(precioKwh || 0);
   const costoManoObra = Number(horasTrabajoPersonal || 0) * Number(valorHora || 0);
   const amortPorHora = Number(vidaUtilHoras) > 0 ? Number(precioImpresora || 0) / Number(vidaUtilHoras) : 0;
@@ -2848,8 +2854,9 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const costoExtras = extras.reduce((acc, ex) => acc + (Number(ex.costo) || 0), 0);
 
   const subtotal = costoMaterial + costoElectricidad + costoManoObra + costoAmortizacion + costoExtras;
-  const minimo = subtotal + Number(envio || 0);
-  const conMargen = minimo * (1 + Number(margen || 0) / 100);
+  const costoPorBandeja = cantidadBandejas > 0 ? subtotal / cantidadBandejas : subtotal;
+  const baseUnitario = costoPorBandeja + Number(envio || 0);
+  const conMargen = baseUnitario * (1 + Number(margen || 0) / 100);
   const recomendadoPorMargen = Number(comision) < 100 ? conMargen / (1 - Number(comision || 0) / 100) : conMargen;
 
   // Modo "precio final": el usuario tipea el precio de venta y acá se
@@ -2857,8 +2864,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   // a partir de un margen que él define.
   const precioFinalNum = Number(precioFinalManual) || 0;
   const recomendado = modoPrecio === "precio" && precioFinalNum > 0 ? precioFinalNum : recomendadoPorMargen;
-  const margenResultante = minimo > 0 ? ((recomendado - minimo) / minimo) * 100 : null;
-  const premium = recomendado * 1.2;
+  const margenResultante = baseUnitario > 0 ? ((recomendado - baseUnitario) / baseUnitario) * 100 : null;
 
   const pct = (v) => (subtotal > 0 ? Math.round((v / subtotal) * 100) : 0);
 
@@ -2866,7 +2872,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
     if (!addProduct) return;
     addProduct({
       nombre: nombreProducto || "Producto sin nombre",
-      costo: Math.round(subtotal),
+      costo: Math.round(costoPorBandeja),
       precioUnitario: Math.round(recomendado),
       notas: "Generado desde la calculadora",
       fechaCreacion: todayISO(),
@@ -2887,9 +2893,9 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       fechaEntrega,
       estado: "pendiente",
       notas: "Generado desde la calculadora",
-      costoEstimado: Math.round(subtotal * cant),
-      pesoEstimado: Math.round(Number(peso || 0) * cant),
-      tiempoEstimado: Math.round(horasTotales * cant * 10) / 10,
+      costoEstimado: Math.round(costoPorBandeja * cant),
+      pesoEstimado: Math.round(gramosPorBandeja * cant),
+      tiempoEstimado: Math.round(horasPorBandeja * cant * 10) / 10,
     });
     setEnviado(true);
     setTimeout(() => setEnviado(false), 2500);
@@ -2903,6 +2909,24 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
 
       <div className="calc-grid">
         <div className="accordion-stack">
+          <AccordionSection icon={Layers} color="accent" title="Bandejas de impresión" subtitle="Cantidad, gramos y tiempo por bandeja" open={open.bandejas} onToggle={() => toggle("bandejas")}>
+            <p className="hint">Agregá una fila por cada tipo de bandeja. Si varias son iguales, poné cuántas vas a imprimir y los datos de una sola.</p>
+            {bandejas.map((item, index) => (
+              <div key={item.id} className="extra-row">
+                <div className="form-row">
+                  <label>Cantidad de bandejas<input type="number" min="1" step="1" value={item.cantidad} onChange={(e) => actualizarBandeja(item.id, { cantidad: e.target.value })} /></label>
+                  <label>Filamento por bandeja (g)<input type="number" min="0" step="0.1" value={item.gramos} onChange={(e) => actualizarBandeja(item.id, { gramos: e.target.value })} /></label>
+                  {bandejas.length > 1 && <button type="button" className="icon-btn" aria-label={`Quitar fila ${index + 1}`} onClick={() => quitarBandeja(item.id)}><X size={14} /></button>}
+                </div>
+                <div className="form-row">
+                  <label>Horas por bandeja<input type="number" min="0" step="0.1" value={item.horas} onChange={(e) => actualizarBandeja(item.id, { horas: e.target.value })} /></label>
+                  <label>Minutos adicionales<input type="number" min="0" max="59" value={item.minutos} onChange={(e) => actualizarBandeja(item.id, { minutos: e.target.value })} /></label>
+                </div>
+              </div>
+            ))}
+            <button type="button" className="btn-secondary" onClick={agregarBandeja}><Plus size={14} /> Agregar otro tipo de bandeja</button>
+            <p className="hint">Total: {cantidadBandejas} bandeja(s) · {peso.toFixed(1)} g · {horasTotales.toFixed(2)} h de impresión</p>
+          </AccordionSection>
           <AccordionSection icon={Tags} color="accent" title="Material" subtitle="Filamento y desperdicio" open={open.material} onToggle={() => toggle("material")}>
             <label>
               Filamento del stock (opcional)
@@ -2913,18 +2937,11 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
                 ))}
               </select>
             </label>
-            <div className="form-row">
-              <label>Peso pieza (g)<input type="number" min="0" value={peso} onChange={(e) => setPeso(e.target.value)} /></label>
-              <label>Precio filamento (ARS/kg)<input type="number" min="0" value={precioKg} onChange={(e) => setPrecioKg(e.target.value)} /></label>
-            </div>
+            <label>Precio filamento (ARS/kg)<input type="number" min="0" value={precioKg} onChange={(e) => setPrecioKg(e.target.value)} /></label>
             <Slider label="Desperdicio / fallos" value={desperdicio} onChange={setDesperdicio} max={40} />
           </AccordionSection>
 
           <AccordionSection icon={Zap} color="teal" title="Electricidad y tiempo" subtitle="Consumo de la Hi Combo" open={open.electricidad} onToggle={() => toggle("electricidad")}>
-            <div className="form-row">
-              <label>Horas<input type="number" min="0" value={horas} onChange={(e) => setHoras(e.target.value)} /></label>
-              <label>Minutos<input type="number" min="0" max="59" value={minutos} onChange={(e) => setMinutos(e.target.value)} /></label>
-            </div>
             <div className="form-row">
               <label>Potencia impresora (W)<input type="number" min="0" value={potenciaW} onChange={(e) => setPotenciaW(e.target.value)} /></label>
               <label>Precio kWh (ARS)<input type="number" min="0" value={precioKwh} onChange={(e) => setPrecioKwh(e.target.value)} /></label>
@@ -3019,8 +3036,9 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
 
         <div className="panel breakdown sticky">
           <h3>Resultado del cálculo</h3>
-          <p className="total-label">Costo total de producción</p>
+          <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s)</p>
           <p className="total-value mono">{formatARS(subtotal)}</p>
+          <div className="breakdown-row"><span>Costo promedio por bandeja</span><span className="mono">{formatARS(costoPorBandeja)}</span></div>
 
           <div className="pct-bars">
             <div className="pct-row"><span>Material</span><div className="pct-track"><div className="pct-fill accent" style={{ width: `${pct(costoMaterial)}%` }} /></div><span className="mono">{pct(costoMaterial)}%</span></div>
@@ -3038,9 +3056,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <div className="breakdown-row"><span>Envío</span><span className="mono">{formatARS(envio)}</span></div>
 
           <div className="price-levels">
-            <div className="level"><span>Mínimo</span><strong className="mono">{formatARS(minimo)}</strong></div>
             <div className="level rec"><span>{modoPrecio === "precio" ? "Tu precio" : "Recomendado"}</span><strong className="mono">{formatARS(recomendado)}</strong></div>
-            <div className="level"><span>Premium</span><strong className="mono">{formatARS(premium)}</strong></div>
           </div>
 
           <div className="send-to-product">
