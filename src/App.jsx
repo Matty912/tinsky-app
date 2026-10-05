@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { supabase } from "./lib/supabaseClient";
 import { storage } from "./lib/storage";
 import logo from "./logo.png";
 const LOGO_SRC = logo;
@@ -343,8 +344,6 @@ const defaultData = {
 };
 
 const CONTACTO = { instagram: "tinsky.ok", whatsapp: "116835739" };
-const AUTH_KEY = "tinsky-auth";
-const CREDENCIALES = { usuario: "tinsky.app", clave: "tinsky.2005" };
 
 const TIPOS_COMPRA = ["Filamento", "Repuesto / parte", "Insumo", "Otro"];
 const MEDIOS_PAGO = ["Efectivo", "Transferencia", "Mercado Pago", "Tarjeta", "Otro"];
@@ -356,17 +355,21 @@ function defaultTiers() {
 }
 
 function LoginGate({ theme, onLogin }) {
-  const [usuario, setUsuario] = useState("");
+  const [email, setEmail] = useState("");
   const [clave, setClave] = useState("");
   const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (usuario.trim() === CREDENCIALES.usuario && clave === CREDENCIALES.clave) {
-      setError("");
-      onLogin();
-    } else {
-      setError("Usuario o contraseña incorrectos.");
+    setEnviando(true);
+    setError("");
+    try {
+      await onLogin(email.trim(), clave);
+    } catch (err) {
+      setError(err.message || "No se pudo iniciar sesión.");
+    } finally {
+      setEnviando(false);
     }
   };
 
@@ -378,17 +381,18 @@ function LoginGate({ theme, onLogin }) {
         <form className="login-card" onSubmit={submit}>
           <img src={LOGO_SRC} alt="Tinsky" className="login-logo" />
           <h1>Tinsky</h1>
-          <p className="login-sub">Ingresá para ver tu taller</p>
+          <p className="login-sub">Ingresá con tu cuenta para ver tu taller</p>
           <label>
-            Usuario
-            <input value={usuario} onChange={(e) => setUsuario(e.target.value)} autoFocus />
+            Correo electrónico
+            <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
           </label>
           <label>
             Contraseña
-            <input type="password" value={clave} onChange={(e) => setClave(e.target.value)} />
+            <input type="password" autoComplete="current-password" value={clave} onChange={(e) => setClave(e.target.value)} required />
           </label>
+          {!supabase && <p className="login-error">Falta configurar Supabase. El acceso permanece bloqueado para proteger tus datos.</p>}
           {error && <p className="login-error"><Lock size={12} /> {error}</p>}
-          <button type="submit" className="btn-accent" style={{ justifyContent: "center" }}>Entrar</button>
+          <button type="submit" className="btn-accent" style={{ justifyContent: "center" }} disabled={!supabase || enviando}>{enviando ? "Ingresando…" : "Entrar"}</button>
         </form>
       </div>
     </div>
@@ -402,15 +406,38 @@ export default function App() {
   const [saveError, setSaveError] = useState(null);
   const [tab, setTab] = useState("resumen");
   const [theme, setTheme] = useState("dark");
-  const [authOk, setAuthOk] = useState(() => {
-    try {
-      return localStorage.getItem(AUTH_KEY) === "ok";
-    } catch (e) {
-      return false;
-    }
-  });
+  const [authOk, setAuthOk] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
+    if (!supabase) {
+      setAuthReady(true);
+      return undefined;
+    }
+    let alive = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!alive) return;
+      if (error) console.error("No se pudo recuperar la sesión", error);
+      setAuthOk(Boolean(data?.session));
+      setAuthReady(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setLoaded(false);
+        setData(defaultData);
+        setLoadError(null);
+        setSaveError(null);
+      }
+      setAuthOk(Boolean(session));
+    });
+    return () => {
+      alive = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authOk) return;
     (async () => {
       try {
         const value = await storage.getItem(THEME_KEY);
@@ -419,7 +446,7 @@ export default function App() {
         // sin preferencia guardada, se queda en "dark"
       }
     })();
-  }, []);
+  }, [authOk]);
 
   const toggleTheme = async () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -439,6 +466,7 @@ export default function App() {
   }, [theme]);
 
   const cargarDatos = useCallback(async () => {
+    if (!authOk) return;
     setLoadError(null);
     try {
       const value = await storage.getItem(STORAGE_KEY);
@@ -460,7 +488,7 @@ export default function App() {
       // de mostrar el taller vacío — así evitamos que cualquier cambio que
       // hagas se guarde por encima de tus datos reales sin que vos lo sepas.
     }
-  }, []);
+  }, [authOk]);
 
   useEffect(() => {
     cargarDatos();
@@ -566,17 +594,18 @@ export default function App() {
     { k: "ejecutivo", label: "Dashboard Ejecutivo", icon: Rocket },
   ];
 
+  if (!authReady) {
+    return <div className="tinsky-root" data-theme={theme}><div className="login-wrap"><p className="login-sub">Verificando sesión…</p></div></div>;
+  }
+
   if (!authOk) {
     return (
       <LoginGate
         theme={theme}
-        onLogin={() => {
-          try {
-            localStorage.setItem(AUTH_KEY, "ok");
-          } catch (e) {
-            // si falla el storage, igual dejamos entrar por esta sesión
-          }
-          setAuthOk(true);
+        onLogin={async (email, password) => {
+          if (!supabase) throw new Error("No está configurada la conexión segura con Supabase.");
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw new Error("Correo o contraseña incorrectos.");
         }}
       />
     );
@@ -642,11 +671,8 @@ export default function App() {
             </button>
             <button
               className="theme-toggle"
-              onClick={() => {
-                try {
-                  localStorage.removeItem(AUTH_KEY);
-                } catch (e) {}
-                setAuthOk(false);
+              onClick={async () => {
+                await supabase.auth.signOut();
               }}
               title="Cerrar sesión"
             >
@@ -3780,7 +3806,7 @@ const CSS = `
 }
 .topbar-meta .dot { opacity: 0.5; }
 
-.content { flex: 1; padding: 22px 26px; max-width: 1100px; }
+.content { flex: 1; width: 100%; padding: 22px 26px; max-width: 1600px; margin: 0 auto; }
 .loading { color: var(--ink-soft); font-style: italic; padding: 40px 0; }
 
 @media (max-width: 860px) {

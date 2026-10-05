@@ -3,35 +3,35 @@ import { supabase } from "./supabaseClient";
 const hasSupabase = !!supabase;
 
 export const storage = {
-  // IMPORTANTE: si falla la consulta a Supabase (red caída, DNS, etc.),
-  // esto TIENE que lanzar el error en vez de devolver null — devolver null
-  // acá se interpretaba como "todavía no hay datos guardados", lo cual
-  // hacía que la app siguiera de largo con un estado vacío y, al guardar
-  // cualquier cambio, pisara los datos reales que sí estaban en la base.
+  // Un fallo de red o de permisos no debe interpretarse como una base vacía:
+  // así evitamos que la app pueda sobrescribir accidentalmente los datos reales.
   async getItem(key) {
-    if (hasSupabase) {
-      const { data, error } = await supabase
-        .from("kv_store")
-        .select("value")
-        .eq("key", key)
-        .maybeSingle();
-      if (error) {
-        throw new Error(`No se pudo leer "${key}" de Supabase: ${error.message || error.code || "error desconocido"}`);
-      }
-      return data ? data.value : null;
+    if (!hasSupabase) throw new Error("La conexión segura con Supabase no está configurada.");
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) throw new Error("Iniciá sesión para acceder a los datos del taller.");
+
+    const { data, error } = await supabase
+      .from("kv_store")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`No se pudo leer "${key}" de Supabase: ${error.message || error.code || "error desconocido"}`);
     }
-    return localStorage.getItem(key);
+    return data ? data.value : null;
   },
 
   async setItem(key, value) {
-    if (hasSupabase) {
-      const { error } = await supabase.from("kv_store").upsert({ key, value }, { onConflict: "key" });
-      if (error) {
-        throw new Error(`No se pudo guardar "${key}" en Supabase: ${error.message || error.code || "error desconocido"}`);
-      }
-      return true;
+    if (!hasSupabase) throw new Error("La conexión segura con Supabase no está configurada.");
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) throw new Error("Iniciá sesión para guardar los datos del taller.");
+
+    const { error } = await supabase
+      .from("kv_store")
+      .upsert({ key, value, user_id: sessionData.session.user.id }, { onConflict: "key" });
+    if (error) {
+      throw new Error(`No se pudo guardar "${key}" en Supabase: ${error.message || error.code || "error desconocido"}`);
     }
-    localStorage.setItem(key, value);
     return true;
   },
 
