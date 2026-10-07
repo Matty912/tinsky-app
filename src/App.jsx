@@ -2958,7 +2958,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
               <FileText size={14} /> {importandoGcode ? "Leyendo archivos…" : "Importar G-code de Creality Print"}
               <input type="file" accept=".gcode,.gco,.gc" multiple disabled={importandoGcode} onChange={importarGcode} style={{ display: "none" }} />
             </label>
-            <p className="hint">En Creality Print, exportá el G-code ya laminado. Podés seleccionar varios archivos; cada uno se carga como una bandeja.</p>
+            <p className="hint">En Creality Print, exportá el G-code ya laminado. Podés elegir varios archivos; cada uno se carga como una bandeja. Importar reemplaza las filas actuales.</p>
             {mensajeImportacion && <p className="hint" role="status">{mensajeImportacion}</p>}
             {bandejas.map((item, index) => (
               <div key={item.id} className="extra-row">
