@@ -2786,10 +2786,53 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const [extras, setExtras] = useState(c.extras && c.extras.length ? c.extras : []);
   const [modoPrecio, setModoPrecio] = useState(c.modoPrecio ?? "margen");
   const [precioFinalManual, setPrecioFinalManual] = useState(c.precioFinalManual ?? "");
+  const [importandoGcode, setImportandoGcode] = useState(false);
+  const [mensajeImportacion, setMensajeImportacion] = useState("");
 
   const agregarBandeja = () => setBandejas((items) => [...items, { id: uid(), cantidad: 1, gramos: "", horas: 0, minutos: 0 }]);
   const quitarBandeja = (id) => setBandejas((items) => items.length > 1 ? items.filter((item) => item.id !== id) : items);
   const actualizarBandeja = (id, patch) => setBandejas((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
+  const importarGcode = async (event) => {
+    const archivos = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!archivos.length) return;
+    setImportandoGcode(true);
+    setMensajeImportacion("");
+    const filas = [];
+    const errores = [];
+    for (const archivo of archivos) {
+      try {
+        const texto = await archivo.slice(0, 512 * 1024).text();
+        const tiempoLinea = texto.match(/;\s*estimated printing time(?:\s*\([^)]*\))?\s*=\s*([^\r\n]+)/i)?.[1];
+        const gramosTotalLinea = texto.match(/;\s*total filament used\s*\[g\]\s*=\s*([^\r\n]+)/i)?.[1];
+        const lineasGramos = [...texto.matchAll(/^;\s*filament used\s*\[g\]\s*=\s*([^\r\n]+)/gim)].map((match) => match[1]);
+        const sumarGramos = (linea) => (linea.match(/\d+(?:\.\d+)?/g) || []).reduce((suma, valor) => suma + Number(valor), 0);
+        const gramos = gramosTotalLinea ? sumarGramos(gramosTotalLinea) : lineasGramos.reduce((suma, linea) => suma + sumarGramos(linea), 0);
+        const partesTiempo = [...(tiempoLinea || "").matchAll(/(\d+(?:\.\d+)?)\s*(d|days?|h|hours?|m|min(?:utes?)?|s|sec(?:onds?)?)/gi)];
+        let segundos = partesTiempo.reduce((suma, [, valor, unidad]) => {
+          const u = unidad.toLowerCase();
+          return suma + Number(valor) * (u.startsWith("d") ? 86400 : u.startsWith("h") ? 3600 : u.startsWith("m") ? 60 : 1);
+        }, 0);
+        if (!partesTiempo.length && /^\d{1,3}:\d{2}:\d{2}$/.test((tiempoLinea || "").trim())) {
+          const [h, m, seg] = tiempoLinea.trim().split(":").map(Number);
+          segundos = h * 3600 + m * 60 + seg;
+        }
+        if (!gramos || !segundos) {
+          errores.push(archivo.name + ": no encontré gramos o tiempo de impresión");
+          continue;
+        }
+        const minutosTotal = Math.round(segundos / 60);
+        filas.push({ id: uid(), nombre: archivo.name, cantidad: 1, gramos: Math.round(gramos * 100) / 100, horas: Math.floor(minutosTotal / 60), minutos: minutosTotal % 60 });
+      } catch {
+        errores.push(archivo.name + ": no se pudo leer el archivo");
+      }
+    }
+    if (filas.length) setBandejas(filas);
+    setMensajeImportacion(filas.length
+      ? "Se importaron " + filas.length + " bandeja(s)" + (errores.length ? ". " + errores.join("; ") : ".")
+      : errores.join("; ") || "No se pudieron leer los datos de impresión.");
+    setImportandoGcode(false);
+  };
 
   const agregarExtra = () => setExtras((e) => [...e, { id: uid(), nombre: "", costo: "", compraId: "" }]);
   const quitarExtra = (id) => setExtras((e) => e.filter((x) => x.id !== id));
@@ -2911,8 +2954,15 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
         <div className="accordion-stack">
           <AccordionSection icon={Layers} color="accent" title="Bandejas de impresión" subtitle="Cantidad, gramos y tiempo por bandeja" open={open.bandejas} onToggle={() => toggle("bandejas")}>
             <p className="hint">Agregá una fila por cada tipo de bandeja. Si varias son iguales, poné cuántas vas a imprimir y los datos de una sola.</p>
+            <label className="btn-secondary" style={{ display: "inline-flex", width: "fit-content", cursor: importandoGcode ? "wait" : "pointer" }}>
+              <FileText size={14} /> {importandoGcode ? "Leyendo archivos…" : "Importar G-code de Creality Print"}
+              <input type="file" accept=".gcode,.gco,.gc" multiple disabled={importandoGcode} onChange={importarGcode} style={{ display: "none" }} />
+            </label>
+            <p className="hint">En Creality Print, exportá el G-code ya laminado. Podés seleccionar varios archivos; cada uno se carga como una bandeja.</p>
+            {mensajeImportacion && <p className="hint" role="status">{mensajeImportacion}</p>}
             {bandejas.map((item, index) => (
               <div key={item.id} className="extra-row">
+                {item.nombre && <p className="hint">{item.nombre}</p>}
                 <div className="form-row">
                   <label>Cantidad de bandejas<input type="number" min="1" step="1" value={item.cantidad} onChange={(e) => actualizarBandeja(item.id, { cantidad: e.target.value })} /></label>
                   <label>Filamento por bandeja (g)<input type="number" min="0" step="0.1" value={item.gramos} onChange={(e) => actualizarBandeja(item.id, { gramos: e.target.value })} /></label>
