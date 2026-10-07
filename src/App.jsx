@@ -16,6 +16,7 @@ import {
   Palette, Frame, Tag, Activity, Rocket, LogOut, Lock
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from "recharts";
+import LampDesigner from "./LampDesigner";
 
 function compressImage(file, maxSize = 640, quality = 0.72) {
   return new Promise((resolve, reject) => {
@@ -593,6 +594,7 @@ export default function App() {
     { k: "presupuestos", label: "Presupuestos", icon: FileText },
     { k: "compras", label: "Compras", icon: ShoppingCart },
     { k: "calculadora", label: "Calculadora", icon: Calculator },
+    { k: "disenador3d", label: "Diseñador 3D", icon: Wand2 },
     { k: "ideas", label: "Ideas", icon: Lightbulb },
     { k: "posts", label: "Generador de posts", icon: Share2 },
     { k: "heatmap", label: "Actividad", icon: Activity },
@@ -727,6 +729,8 @@ export default function App() {
               <Presupuestos data={data} addPresupuesto={addPresupuesto} deletePresupuesto={deletePresupuesto} aceptarPresupuesto={aceptarPresupuesto} />
             ) : tab === "compras" ? (
               <Compras data={data} addPurchase={addPurchase} deletePurchase={deletePurchase} />
+            ) : tab === "disenador3d" ? (
+              <LampDesigner settings={data.config?.lampDesigner} onSettingsChange={(lampDesigner) => updateConfig({ lampDesigner })} addProduct={addProduct} />
             ) : tab === "ideas" ? (
               <Ideas />
             ) : tab === "posts" ? (
