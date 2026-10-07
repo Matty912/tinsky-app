@@ -538,6 +538,11 @@ export default function App() {
   const deletePurchase = (id) => persist({ ...data, purchases: data.purchases.filter((p) => p.id !== id) });
 
   const addVenta = (item) => persist({ ...data, ventas: [...data.ventas, { id: uid(), fecha: item.fecha || todayISO(), ...item, hora: nowHHMM() }] });
+  const registrarCobroPedido = (id, patch, venta) => persist({
+    ...data,
+    orders: data.orders.map((o) => o.id === id ? { ...o, ...patch } : o),
+    ventas: [...data.ventas, { id: uid(), fecha: todayISO(), ...venta, hora: nowHHMM() }],
+  });
   const updateVenta = (id, patch) => persist({ ...data, ventas: data.ventas.map((v) => (v.id === id ? { ...v, ...patch } : v)) });
   const deleteVenta = (id) => persist({ ...data, ventas: data.ventas.filter((v) => v.id !== id) });
 
@@ -705,7 +710,7 @@ export default function App() {
             ) : tab === "asistente" ? (
               <Asistente data={data} />
             ) : tab === "pedidos" ? (
-              <Pedidos data={data} addOrder={addOrder} updateOrder={updateOrder} deleteOrder={deleteOrder} addVenta={addVenta} />
+              <Pedidos data={data} addOrder={addOrder} updateOrder={updateOrder} deleteOrder={deleteOrder} registrarCobroPedido={registrarCobroPedido} />
             ) : tab === "stock" ? (
               <Stock data={data} addStock={addStock} updateStock={updateStock} deleteStock={deleteStock} registrarConsumoLog={registrarConsumoLog} />
             ) : tab === "productos" ? (
@@ -1651,7 +1656,7 @@ function DashboardEjecutivo({ data, updateConfig }) {
             {recientes.map((v) => (
               <div key={v.id} className="row-card">
                 <div className="row-main">
-                  <p className="row-title">{v.nombre} <span className="dim">×{v.cantidad}</span></p>
+                  <p className="row-title">{v.nombre} {Number(v.cantidad) > 0 && <span className="dim">×{v.cantidad}</span>}</p>
                   <p className="row-sub">{v.fecha}{v.hora ? ` · ${v.hora}` : ""} · {v.medioPago}</p>
                 </div>
                 <div className="row-side">
@@ -1710,12 +1715,12 @@ function DashboardEjecutivo({ data, updateConfig }) {
 }
 
 // ============================= PEDIDOS =============================
-function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
+function Pedidos({ data, addOrder, updateOrder, deleteOrder, registrarCobroPedido }) {
   const emptyForm = { cliente: "", producto: "", cantidad: 1, precioTotal: "", fechaEntrega: "", notas: "", pesoEstimado: "", tiempoEstimado: "", costoEstimado: "" };
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [pagandoId, setPagandoId] = useState(null);
-  const [pago, setPago] = useState({ medioPago: MEDIOS_PAGO[0], costo: "" });
+  const [pago, setPago] = useState({ medioPago: MEDIOS_PAGO[0], monto: "", costo: "" });
 
   const submit = (e) => {
     e.preventDefault();
@@ -1726,18 +1731,39 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
   };
 
   const confirmarPago = (o) => {
-    updateOrder(o.id, { pagado: true, medioPago: pago.medioPago });
-    addVenta({
+    const totalOrden = Math.max(0, Number(o.precioTotal) || 0);
+    const pagosPrevios = o.pagos || [];
+    const yaPagado = pagosPrevios.length
+      ? pagosPrevios.reduce((suma, p) => suma + (Number(p.monto) || 0), 0)
+      : o.pagado ? totalOrden : 0;
+    const saldo = Math.max(0, totalOrden - yaPagado);
+    const monto = Number(pago.monto) || 0;
+    if (monto <= 0 || monto > saldo || totalOrden <= 0) return;
+    const nuevoTotalPagado = yaPagado + monto;
+    const costoTotal = Number(pago.costo) || Number(o.costoEstimado) || 0;
+    const costoYaAsignado = pagosPrevios.reduce((suma, p) => suma + (Number(p.costo) || 0), 0);
+    const costoRestante = Math.max(0, costoTotal - costoYaAsignado);
+    const esPagoFinal = nuevoTotalPagado >= totalOrden;
+    const costoDelPago = esPagoFinal
+      ? costoRestante
+      : Math.min(costoRestante, Math.round(costoTotal * monto / totalOrden));
+    const nuevoPago = { id: uid(), monto, costo: costoDelPago, medioPago: pago.medioPago, fecha: todayISO(), hora: nowHHMM() };
+    registrarCobroPedido(o.id, {
+      pagos: [...pagosPrevios, nuevoPago],
+      pagado: esPagoFinal,
+      medioPago: pago.medioPago,
+      costoEstimado: costoTotal,
+    }, {
       tipo: "pedido",
       refId: o.id,
       nombre: o.producto,
-      cantidad: o.cantidad,
+      cantidad: pagosPrevios.length === 0 ? o.cantidad : 0,
       medioPago: pago.medioPago,
-      monto: Number(o.precioTotal) || 0,
-      costo: Number(pago.costo) || 0,
+      monto,
+      costo: costoDelPago,
     });
     setPagandoId(null);
-    setPago({ medioPago: MEDIOS_PAGO[0], costo: "" });
+    setPago({ medioPago: MEDIOS_PAGO[0], monto: "", costo: "" });
   };
 
   const sorted = [...data.orders].sort((a, b) => (b.fechaCreacion || "").localeCompare(a.fechaCreacion || ""));
@@ -1805,12 +1831,20 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
         {sorted.length === 0 && <p className="empty-note">Todavía no cargaste pedidos.</p>}
         {sorted.map((o) => {
           const meta = estadoMeta(ESTADOS_PEDIDO, o.estado);
+          const totalOrden = Math.max(0, Number(o.precioTotal) || 0);
+          const pagos = o.pagos || [];
+          const totalPagado = pagos.length
+            ? pagos.reduce((suma, p) => suma + (Number(p.monto) || 0), 0)
+            : o.pagado ? totalOrden : 0;
+          const saldoPendiente = Math.max(0, totalOrden - totalPagado);
           return (
             <div key={o.id} className="row-card wrap">
               <div className="row-top">
                 <div className="row-main">
                   <p className="row-title">{o.producto} <span className="dim">×{o.cantidad}</span></p>
                   <p className="row-sub">{o.cliente || "Mostrador / feria"} {o.fechaEntrega ? `· entrega ${o.fechaEntrega}` : ""}</p>
+                  <p className="row-sub">Pagado: <strong>{formatARS(totalPagado)}</strong> · Saldo: <strong>{formatARS(saldoPendiente)}</strong></p>
+                  {pagos.length > 0 && <p className="row-sub">Pagos: {pagos.map((p, i) => ((i === 0 && Number(p.monto) < totalOrden) ? "Seña" : "Pago " + (i + 1)) + " " + formatARS(p.monto) + " · " + p.fecha).join("  |  ")}</p>}
                   {o.notas && <p className="row-notes">{o.notas}</p>}
                 </div>
                 <div className="row-side">
@@ -1818,15 +1852,17 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
                   <select className={`badge-select tone-${meta.color}`} value={o.estado} onChange={(e) => updateOrder(o.id, { estado: e.target.value })}>
                     {ESTADOS_PEDIDO.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
                   </select>
-                  {o.pagado ? (
+                  {totalOrden <= 0 ? (
+                    <span className="badge tone-warning">Falta precio total</span>
+                  ) : saldoPendiente <= 0 ? (
                     <span className="badge tone-success"><CheckCircle2 size={11} /> Pagado · {o.medioPago}</span>
                   ) : (
                     <button className="btn-mini" onClick={() => {
                       const abriendo = pagandoId !== o.id;
                       setPagandoId(abriendo ? o.id : null);
-                      if (abriendo) setPago({ medioPago: MEDIOS_PAGO[0], costo: o.costoEstimado || "" });
+                      if (abriendo) setPago({ medioPago: MEDIOS_PAGO[0], monto: saldoPendiente, costo: o.costoEstimado || "" });
                     }}>
-                      <DollarSign size={12} /> Marcar pagado
+                      <DollarSign size={12} /> {totalPagado > 0 ? "Registrar otro pago" : "Registrar seña / pago"}
                     </button>
                   )}
                   <button className="icon-btn" onClick={() => deleteOrder(o.id)}><Trash2 size={14} /></button>
@@ -1841,10 +1877,14 @@ function Pedidos({ data, addOrder, updateOrder, deleteOrder, addVenta }) {
                     </select>
                   </label>
                   <label>
-                    Costo (se precarga si lo cargaste al crear el pedido — revisalo antes de confirmar)
+                    Monto cobrado (saldo: {formatARS(saldoPendiente)})
+                    <input type="number" min="0.01" max={saldoPendiente} step="0.01" value={pago.monto} onChange={(e) => setPago({ ...pago, monto: e.target.value })} placeholder="ARS" />
+                  </label>
+                  <label>
+                    Costo total del pedido (se reparte entre los cobros)
                     <input type="number" min="0" value={pago.costo} onChange={(e) => setPago({ ...pago, costo: e.target.value })} placeholder="ARS" />
                   </label>
-                  <button className="btn-accent" onClick={() => confirmarPago(o)} type="button">Confirmar pago → pasa a Ventas</button>
+                  <button className="btn-accent" onClick={() => confirmarPago(o)} type="button" disabled={(Number(pago.monto) || 0) <= 0 || Number(pago.monto) > saldoPendiente}>Registrar pago</button>
                 </div>
               )}
             </div>
@@ -2228,7 +2268,7 @@ function Ventas({ data, deleteVenta, updateVenta }) {
                     <div className="row-top">
                       <div className="row-main">
                         <p className="row-title">
-                          {v.nombre} <span className="dim">×{v.cantidad}</span>
+                          {v.nombre} {Number(v.cantidad) > 0 && <span className="dim">×{v.cantidad}</span>}
                           <span className={`badge inline-badge ${v.tipo === "producto" ? "tone-teal" : v.tipo === "presupuesto" ? "tone-warning" : "tone-violet"}`}>
                             {v.tipo === "producto" ? "Producto" : v.tipo === "presupuesto" ? "Presupuesto" : "Pedido"}
                           </span>
