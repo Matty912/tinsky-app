@@ -257,7 +257,18 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
     }
     return Math.max(1, area * Number(config.espesor) * 0.00124 * (config.textura === "lisa" ? 1 : 1.06));
   }, [config]);
-  const costoMaterial = Math.round(pesoEstimado / 1000 * Number(config.precioKg));
+  const pesoAnillo = useMemo(() => {
+    const holgura = Math.max(0, Number(config.holguraPortal) || 0);
+    const radioPaso = ((Number(config.diametroPaso) || 42) + 2 * holgura) / 2;
+    const radioCuerpo = Math.max(0, (Number(config.diametroSuperior) - 2 * holgura) / 2);
+    const radioBrida = radioCuerpo + Math.max(2, Number(config.anchoBrida) || 8);
+    const paredAnular = Math.max(0, radioCuerpo * radioCuerpo - radioPaso * radioPaso);
+    const vol = Math.PI * paredAnular * Math.max(3, Number(config.largoCollar) || 12)
+      + Math.PI * Math.max(0, radioBrida * radioBrida - radioPaso * radioPaso) * Math.max(1.5, Number(config.espesorBrida) || 3);
+    return vol * 0.00124;
+  }, [config]);
+  const pesoTotalEstimado = pesoEstimado + pesoAnillo;
+  const costoMaterial = Math.round(pesoTotalEstimado / 1000 * Number(config.precioKg));
   const diametroMinimo = PORTALES[config.portal] || 0;
   const encastreInvalido = diametroMinimo > 0 && Number(config.diametroSuperior) < diametroMinimo;
   const diametroPasoReal = (Number(config.diametroPaso) || diametroMinimo || 42) + 2 * (Number(config.holguraPortal) || 0);
@@ -265,7 +276,7 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
   const guardarProducto = () => {
     if (!config.nombre.trim()) { setMensaje("Poné un nombre para guardar el producto."); return; }
     if (!(Number(config.precioVenta) > 0)) { setMensaje("Ingresá un precio de venta para guardar el producto."); return; }
-    addProduct?.({ nombre: config.nombre, costo: costoMaterial, precioUnitario: Math.max(0, Number(config.precioVenta) || 0), notas: `Pantalla 3D · ${config.tipoLuz} · ${config.forma} · ${Math.round(config.altura)} mm de alto`, pesoGramos: Math.round(pesoEstimado), fechaCreacion: new Date().toISOString().slice(0, 10) });
+    addProduct?.({ nombre: config.nombre, costo: costoMaterial, precioUnitario: Math.max(0, Number(config.precioVenta) || 0), notas: `Pantalla 3D · ${config.tipoLuz} · ${config.forma} · ${Math.round(config.altura)} mm de alto`, pesoGramos: Math.round(pesoTotalEstimado), fechaCreacion: new Date().toISOString().slice(0, 10) });
     setMensaje("Diseño agregado a Productos.");
     setTimeout(() => setMensaje(""), 3000);
   };
@@ -299,7 +310,7 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
             <label>Color de vista<div className="lamp-color-row"><input type="color" value={config.color} onChange={(e) => editar("color", e.target.value)} /><span>{config.color.toUpperCase()}</span></div></label>
           </div>
           <div className="lamp-divider" />
-          <div className="lamp-step-title"><span>03</span><div><strong>Anillo para portalámparas</strong><small>Soporte mecánico imprimible que se muestra en la vista 3D</small></div></div>
+          <div className="lamp-step-title"><span>03</span><div><strong>Anillo para portalámparas</strong><small>Soporte mecánico imprimible; ajustalo a las medidas de tu pieza real</small></div></div>
           <div className="lamp-input-grid">
             <label>Diámetro interior de paso (mm)<input type="number" min="12" max="80" step="0.2" value={config.diametroPaso} onChange={(e) => editar("diametroPaso", e.target.value)} /></label>
             <label>Holgura de ajuste (mm)<input type="number" min="0" max="2" step="0.1" value={config.holguraPortal} onChange={(e) => editar("holguraPortal", e.target.value)} /></label>
@@ -325,9 +336,9 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
               <div className="lamp-axis-heading"><strong>Giro por ejes</strong><button type="button" className="btn-secondary" onClick={() => setRotacion({ x: 15, y: 0, z: -22 })}>Restablecer vista</button></div>
               {["x", "y", "z"].map((eje) => <label key={eje}><span>Eje {eje.toUpperCase()} <b>{Math.round(rotacion[eje])}°</b></span><input type="range" min="-180" max="180" step="1" value={rotacion[eje]} onChange={(e) => setRotacion((actual) => ({ ...actual, [eje]: Number(e.target.value) }))} /></label>)}
             </div>
-            <div className="lamp-metrics"><div><span><Ruler size={13} /> DIMENSIONES</span><strong>{config.diametroInferior} × {config.altura} mm</strong></div><div><span><Layers size={13} /> FILAMENTO EST.</span><strong>{pesoEstimado.toFixed(0)} g</strong></div><div><span><Palette size={13} /> COSTO MATERIAL</span><strong>{formatPrice(costoMaterial)}</strong></div></div>
+            <div className="lamp-metrics"><div><span><Ruler size={13} /> DIMENSIONES</span><strong>{config.diametroInferior} × {config.altura} mm</strong></div><div><span><Layers size={13} /> FILAMENTO EST.</span><strong>{pesoTotalEstimado.toFixed(0)} g</strong></div><div><span><Palette size={13} /> COSTO MATERIAL</span><strong>{formatPrice(costoMaterial)}</strong></div></div>
           </div>
-          <div className="lamp-info-grid"><div className="lamp-info-card"><CheckCircle2 size={16} /><div><strong>Pantalla lista para laminar</strong><span>STL en milímetros · cascarón hueco · malla cerrada · geometría ajustable</span></div></div><div className="lamp-info-card"><AlertTriangle size={16} /><div><strong>Portalámparas real</strong><span>El anillo es una pieza mecánica imprimible; medí el portalámparas y verificá la holgura. No incluye componentes eléctricos.</span></div></div></div>
+          <div className="lamp-info-grid"><div className="lamp-info-card"><CheckCircle2 size={16} /><div><strong>Pantalla lista para laminar</strong><span>STL en milímetros · cascarón hueco · malla cerrada · geometría ajustable</span></div></div><div className="lamp-info-card"><AlertTriangle size={16} /><div><strong>Portalámparas real</strong><span>El anillo solo sujeta la pantalla. Medí el portalámparas real para ajustar el paso; no incluye rosca ni contactos eléctricos.</span></div></div></div>
           {(encastreInvalido || adaptadorInvalido) && <div className="lamp-warning"><AlertTriangle size={15} /> {encastreInvalido ? "La abertura superior es menor que la medida inicial para " + config.portal + " (" + diametroMinimo + " mm)." : "El anillo no tiene pared suficiente entre el paso central y el borde."} Revisá las medidas antes de exportar.</div>}
           <p className="lamp-safety">El STL contiene solo la pantalla decorativa. Verificá la compatibilidad térmica y eléctrica con los componentes de iluminación que uses.</p>
         </section>
