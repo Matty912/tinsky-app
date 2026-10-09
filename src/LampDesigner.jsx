@@ -234,14 +234,14 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
   return (
     <div className="section lamp-designer">
       <div className="section-head lamp-heading">
-        <div><span className="lamp-eyebrow"><Sparkles size={13} /> TINSKY LAB · DISEÑO PARAMÉTRICO</span><h2>Diseñador 3D</h2><p className="lamp-subtitle">Diseñá pantallas y jarrones paramétricos, ajustá los detalles y descargá el STL.</p></div>
+        <div><span className="lamp-eyebrow"><Sparkles size={13} /> TINSKY LAB · LÁMPARAS Y JARRONES</span><h2>Diseñador 3D</h2><p className="lamp-subtitle">Diseñá pantallas y jarrones paramétricos, ajustá los detalles y descargá el STL.</p></div>
         <button className="btn-secondary" type="button" onClick={reiniciar}><RotateCcw size={14} /> Restablecer diseño</button>
       </div>
 
       <div className="lamp-workspace">
         <section className="panel lamp-controls">
           <div className="lamp-step-title"><span>01</span><div><strong>Tipo y forma</strong><small>Elegí qué querés diseñar</small></div></div>
-          <label>Proyecto<select value={config.tipo} onChange={(e) => { editar("tipo", e.target.value); editar("nombre", e.target.value === "jarron" ? "Jarrón orgánico" : "Pantalla campana"); }}><option value="pantalla">Pantalla de lámpara</option><option value="jarron">Jarrón decorativo</option></select></label>
+          <label>Proyecto<select value={config.tipo} onChange={(e) => setConfig((actual) => e.target.value === "jarron" ? { ...actual, tipo: "jarron", nombre: "Jarrón orgánico", forma: "libre", altura: 180, diametroInferior: 110, diametroSuperior: 55, espesor: 2, panza: 12, fondo: 3 } : { ...actual, ...BASE })}><option value="pantalla">Pantalla de lámpara</option><option value="jarron">Jarrón decorativo</option></select></label>
           <label>Nombre del diseño<input value={config.nombre} onChange={(e) => editar("nombre", e.target.value)} placeholder="Ej.: Campana Nórdica" /></label>
           <label>Perfil base<select value={config.forma} onChange={(e) => editar("forma", e.target.value)}>{(config.tipo === "jarron" ? [["libre","Perfil libre"],["botella","Botella"],["cuenco","Cuenco"],["cilindro","Cilindro"],["cono","Cono"],["barril","Barril"]] : [["campana","Campana suave"],["cono","Cono moderno"],["cilindro","Cilindro"],["barril","Barril"],["cúpula","Cúpula"],["libre","Perfil libre"]]).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           <div className="lamp-input-grid">
@@ -260,7 +260,7 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
           </div>
           {config.tipo === "jarron" && <label>Grosor del fondo (mm)<input type="number" min="1" max="10" step="0.5" value={config.fondo} onChange={(e) => editar("fondo", e.target.value)} /></label>}
           <div className="lamp-divider" />
-          <div className="lamp-step-title"><span>03</span><div><strong>Textura y material</strong><small>Relieve y acabado exterior</small></div></div>
+          <div className="lamp-step-title"><span>04</span><div><strong>Textura y material</strong><small>Relieve y acabado exterior</small></div></div>
           <label>Superficie<select value={config.textura} onChange={(e) => editar("textura", e.target.value)}><option value="lisa">Lisa</option><option value="acanalada">Acanalada</option><option value="ondas">Ondas envolventes</option><option value="rombos">Rombos en relieve</option><option value="espiral">Espiral</option></select></label>
           {config.textura !== "lisa" && <div className="lamp-input-grid"><label>Canales<input type="number" min="6" max="60" step="2" value={config.canales} onChange={(e) => editar("canales", e.target.value)} /></label><label>Profundidad (mm)<input type="number" min="0.2" max="3" step="0.1" value={config.relieve} onChange={(e) => editar("relieve", e.target.value)} /></label><label>Vueltas de espiral<input type="number" min="0" max="8" step="0.5" value={config.vueltas} onChange={(e) => editar("vueltas", e.target.value)} /></label></div>}
           <div className="lamp-input-grid">
@@ -268,7 +268,7 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
             <label>Color de vista<div className="lamp-color-row"><input type="color" value={config.color} onChange={(e) => editar("color", e.target.value)} /><span>{config.color.toUpperCase()}</span></div></label>
           </div>
           <div className="lamp-divider" />
-          <div className="lamp-step-title"><span>04</span><div><strong>Costos y catálogo</strong><small>Estimación para tu taller</small></div></div>
+          <div className="lamp-step-title"><span>05</span><div><strong>Costos y catálogo</strong><small>Estimación para tu taller</small></div></div>
           <div className="lamp-input-grid"><label>Filamento (ARS/kg)<input type="number" min="0" value={config.precioKg} onChange={(e) => editar("precioKg", e.target.value)} /></label><label>Precio de venta (ARS)<input type="number" min="0" value={config.precioVenta} onChange={(e) => editar("precioVenta", e.target.value)} /></label></div>
           <div className="lamp-actions">
             <button className="btn-secondary" type="button" onClick={guardarProducto}><Save size={14} /> Guardar en Productos</button>
@@ -281,7 +281,7 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
           <div className="panel lamp-preview-panel">
             <div className="lamp-preview-top"><div><span className="lamp-eyebrow"><Rotate3D size={13} /> VISTA INTERACTIVA</span><h3>{config.nombre || "Tu diseño"}</h3></div><div className="lamp-zoom"><button type="button" aria-label="Alejar" onClick={() => setZoom((z) => Math.max(0.6, z - 0.1))}>−</button><button type="button" aria-label="Acercar" onClick={() => setZoom((z) => Math.min(1.5, z + 0.1))}>+</button></div></div>
             <VistaMalla config={config} giro={giro} zoom={zoom} onGiro={setGiro} />
-            <div className="lamp-metrics"><div><span><Ruler size={13} /> DIMENSIONES</span><strong>{config.diametroInferior} × {config.altura} mm</strong></div><div><span><Layers size={13} /> FILAMENTO EST.</span><strong>{pesoEstimado.toFixed(0)} g</strong></div><div><span><Palette size={13} /> COSTO MATERIAL</span><strong>{formatPrice(costoMaterial)}</strong></div></div>
+            <div className="lamp-metrics"><div><span><Ruler size={13} /> DIMENSIONES</span><strong>{config.diametroInferior} × {config.diametroSuperior} × {config.altura} mm</strong></div><div><span><Layers size={13} /> FILAMENTO EST.</span><strong>{pesoEstimado.toFixed(0)} g</strong></div><div><span><Palette size={13} /> COSTO MATERIAL</span><strong>{formatPrice(costoMaterial)}</strong></div></div>
           </div>
           <div className="lamp-info-grid"><div className="lamp-info-card"><CheckCircle2 size={16} /><div><strong>Lista para laminar</strong><span>STL en milímetros · {config.tipo === "jarron" ? "base cerrada y boca abierta" : "cascarón hueco"} · malla cerrada</span></div></div><div className="lamp-info-card"><AlertTriangle size={16} /><div><strong>Compatibilidad</strong><span>Confirmá el encastre y el volumen útil de tu impresora antes de imprimir.</span></div></div></div>
           {config.tipo === "pantalla" && encastreInvalido && <div className="lamp-warning"><AlertTriangle size={15} /> La abertura superior es menor que el encastre de {config.portal} seleccionado ({diametroMinimo} mm). Ajustá el diámetro antes de exportar.</div>}
