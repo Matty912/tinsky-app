@@ -18,6 +18,11 @@ const BASE = {
   vueltas: 2,
   lados: 96,
   portal: "E27",
+  diametroPaso: 42,
+  holguraPortal: 0.4,
+  anchoBrida: 8,
+  espesorBrida: 3,
+  largoCollar: 12,
   color: "#d8b99a",
   precioKg: 15000,
   precioVenta: 0,
@@ -94,11 +99,41 @@ function crearMalla(cfg, segmentos = 96, filas = 40) {
   return caras;
 }
 
-function exportarSTL(cfg) {
-  const caras = crearMalla(cfg, Math.max(12, Number(cfg.lados) || 96), 48);
+function crearMallaAdaptador(cfg) {
+  const segmentos = Math.max(24, Number(cfg.lados) || 96);
+  const holgura = Math.max(0, Number(cfg.holguraPortal) || 0);
+  const paso = (Number(cfg.diametroPaso) || PORTALES[cfg.portal] || 42) + holgura * 2;
+  const cuerpo = Math.max(0, Number(cfg.diametroSuperior) - holgura * 2);
+  const espesor = Math.max(1.2, Number(cfg.espesor) || 2);
+  if (cuerpo <= paso + espesor * 2) return [];
+  const z0 = Math.max(0, Number(cfg.altura) - Math.max(3, Number(cfg.largoCollar) || 12));
+  const z1 = Number(cfg.altura);
+  const z2 = z1 + Math.max(1.5, Number(cfg.espesorBrida) || 3);
+  const rCuerpo = cuerpo / 2;
+  const rBrida = rCuerpo + Math.max(2, Number(cfg.anchoBrida) || 8);
+  const rPaso = paso / 2;
+  const perfil = [[rCuerpo, z0], [rCuerpo, z1], [rBrida, z1], [rBrida, z2], [rPaso, z2], [rPaso, z0]];
+  const anillos = perfil.map(([r, z]) => Array.from({ length: segmentos }, (_, i) => {
+    const a = i / segmentos * Math.PI * 2;
+    return [r * Math.cos(a), r * Math.sin(a), z];
+  }));
+  const caras = [];
+  for (let j = 0; j < perfil.length; j += 1) {
+    const siguiente = (j + 1) % perfil.length;
+    for (let i = 0; i < segmentos; i += 1) {
+      const k = (i + 1) % segmentos;
+      caras.push([anillos[j][i], anillos[j][k], anillos[siguiente][i]]);
+      caras.push([anillos[j][k], anillos[siguiente][k], anillos[siguiente][i]]);
+    }
+  }
+  return caras;
+}
+
+function descargarSTL(caras, cfg, sufijo) {
+  if (!caras.length) return;
   const buffer = new ArrayBuffer(84 + caras.length * 50);
   const vista = new DataView(buffer);
-  const titulo = new TextEncoder().encode("Tinsky - diseno parametrico de pantalla");
+  const titulo = new TextEncoder().encode("Tinsky - diseno parametrico de luz");
   new Uint8Array(buffer, 0, titulo.length).set(titulo);
   vista.setUint32(80, caras.length, true);
   let offset = 84;
@@ -115,13 +150,20 @@ function exportarSTL(cfg) {
   const blob = new Blob([buffer], { type: "model/stl" });
   const url = URL.createObjectURL(blob);
   const enlace = document.createElement("a");
-  const nombre = (cfg.nombre || "pantalla-tinsky").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const nombre = (cfg.nombre || "diseno-tinsky").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   enlace.href = url;
-  enlace.download = `${nombre || "pantalla-tinsky"}.stl`;
+  enlace.download = (nombre || "diseno-tinsky") + "-" + sufijo + ".stl";
   enlace.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function exportarSTL(cfg) {
+  descargarSTL(crearMalla(cfg, Math.max(12, Number(cfg.lados) || 96), 48), cfg, "pantalla");
+}
+
+function exportarAdaptadorSTL(cfg) {
+  descargarSTL(crearMallaAdaptador(cfg), cfg, "anillo-portalamp");
+}
 function colorSombreado(color, brillo) {
   const n = Number.parseInt(color.replace("#", ""), 16);
   const factor = Math.min(1.18, Math.max(0.24, brillo));
@@ -148,11 +190,11 @@ function VistaMalla({ config, rotacion, zoom, onRotacion }) {
       ctx.beginPath(); ctx.moveTo(ancho / 2 + i * 34, sueloY - 14); ctx.lineTo(ancho / 2 + i * 60, alto); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, sueloY + i * 18); ctx.lineTo(ancho, sueloY + i * 18); ctx.stroke();
     }
-    const caras = crearMalla(config, Math.max(12, Number(config.lados) || 96), 28);
+    const caras = crearMalla(config, Math.max(12, Number(config.lados) || 96), 28).concat(crearMallaAdaptador(config));
     const ax = rotacion.x * Math.PI / 180;
     const ay = rotacion.y * Math.PI / 180;
     const az = rotacion.z * Math.PI / 180;
-    const escala = Math.min(ancho / (Math.max(Number(config.diametroInferior), Number(config.diametroCuerpo) || 0) * 2.5), alto / (Number(config.altura) * 1.8)) * zoom;
+    const escala = Math.min(ancho / (Math.max(Number(config.diametroInferior), Number(config.diametroCuerpo) || 0, Number(config.diametroSuperior) + Number(config.anchoBrida || 8) * 2) * 2.5), alto / ((Number(config.altura) + Number(config.espesorBrida || 3)) * 1.8)) * zoom;
     const luz = [-0.45, -0.55, 0.7];
     const renderizadas = caras.map((cara) => {
       const puntos = cara.map(([x, y, z]) => {
@@ -191,7 +233,7 @@ function VistaMalla({ config, rotacion, zoom, onRotacion }) {
 }
 
 export default function LampDesigner({ settings, onSettingsChange, addProduct }) {
-  const [config, setConfig] = useState(() => ({ ...BASE, ...(settings || {}) }));
+  const [config, setConfig] = useState(() => ({ ...BASE, ...(settings || {}), diametroPaso: Number(settings?.diametroPaso) || PORTALES[settings?.portal || BASE.portal] || BASE.diametroPaso }));
   const [rotacion, setRotacion] = useState({ x: 15, y: 0, z: -22 });
   const [zoom, setZoom] = useState(1);
   const [mensaje, setMensaje] = useState("");
@@ -218,6 +260,8 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
   const costoMaterial = Math.round(pesoEstimado / 1000 * Number(config.precioKg));
   const diametroMinimo = PORTALES[config.portal] || 0;
   const encastreInvalido = diametroMinimo > 0 && Number(config.diametroSuperior) < diametroMinimo;
+  const diametroPasoReal = (Number(config.diametroPaso) || diametroMinimo || 42) + 2 * (Number(config.holguraPortal) || 0);
+  const adaptadorInvalido = Number(config.diametroSuperior) - 2 * (Number(config.holguraPortal) || 0) <= diametroPasoReal + 2 * Math.max(1.2, Number(config.espesor) || 2);
   const guardarProducto = () => {
     if (!config.nombre.trim()) { setMensaje("Poné un nombre para guardar el producto."); return; }
     if (!(Number(config.precioVenta) > 0)) { setMensaje("Ingresá un precio de venta para guardar el producto."); return; }
@@ -251,15 +295,24 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
           <label>Superficie<select value={config.textura} onChange={(e) => editar("textura", e.target.value)}><option value="lisa">Lisa</option><option value="acanalada">Acanalada</option><option value="ondas">Ondas envolventes</option><option value="rombos">Rombos en relieve</option><option value="espiral">Espiral helicoidal</option></select></label>
           {config.textura !== "lisa" && <div className="lamp-input-grid"><label>Canales<input type="number" min="6" max="60" step="2" value={config.canales} onChange={(e) => editar("canales", e.target.value)} /></label><label>Profundidad (mm)<input type="number" min="0.2" max="3" step="0.1" value={config.relieve} onChange={(e) => editar("relieve", e.target.value)} /></label><label>Vueltas de espiral<input type="number" min="0" max="8" step="0.5" value={config.vueltas} onChange={(e) => editar("vueltas", e.target.value)} /></label></div>}<div className="lamp-input-grid"><label>Facetas del modelo (menos = más geométrico)<input type="number" min="12" max="160" step="4" value={config.lados} onChange={(e) => editar("lados", e.target.value)} /></label></div>
           <div className="lamp-input-grid">
-            <label>Portalámparas<select value={config.portal} onChange={(e) => editar("portal", e.target.value)}>{Object.keys(PORTALES).map((key) => <option key={key} value={key}>{key === "A medida" ? key : `Estándar ${key}`}</option>)}</select></label>
+            <label>Portalámparas<select value={config.portal} onChange={(e) => setConfig((actual) => ({ ...actual, portal: e.target.value, diametroPaso: PORTALES[e.target.value] || actual.diametroPaso }))}>{Object.keys(PORTALES).map((key) => <option key={key} value={key}>{key === "A medida" ? key : `Estándar ${key}`}</option>)}</select></label>
             <label>Color de vista<div className="lamp-color-row"><input type="color" value={config.color} onChange={(e) => editar("color", e.target.value)} /><span>{config.color.toUpperCase()}</span></div></label>
           </div>
           <div className="lamp-divider" />
-          <div className="lamp-step-title"><span>03</span><div><strong>Costos y catálogo</strong><small>Estimación para tu taller</small></div></div>
+          <div className="lamp-step-title"><span>03</span><div><strong>Anillo para portalámparas</strong><small>Soporte mecánico imprimible que se muestra en la vista 3D</small></div></div>
+          <div className="lamp-input-grid">
+            <label>Diámetro interior de paso (mm)<input type="number" min="12" max="80" step="0.2" value={config.diametroPaso} onChange={(e) => editar("diametroPaso", e.target.value)} /></label>
+            <label>Holgura de ajuste (mm)<input type="number" min="0" max="2" step="0.1" value={config.holguraPortal} onChange={(e) => editar("holguraPortal", e.target.value)} /></label>
+            <label>Ancho de la brida (mm)<input type="number" min="2" max="20" step="0.5" value={config.anchoBrida} onChange={(e) => editar("anchoBrida", e.target.value)} /></label>
+            <label>Grosor de la brida (mm)<input type="number" min="1.5" max="8" step="0.5" value={config.espesorBrida} onChange={(e) => editar("espesorBrida", e.target.value)} /></label>
+            <label>Largo de inserción (mm)<input type="number" min="3" max="40" step="1" value={config.largoCollar} onChange={(e) => editar("largoCollar", e.target.value)} /></label>
+          </div>
+          <div className="lamp-divider" />
+          <div className="lamp-step-title"><span>04</span><div><strong>Costos y catálogo</strong><small>Estimación para tu taller</small></div></div>
           <div className="lamp-input-grid"><label>Filamento (ARS/kg)<input type="number" min="0" value={config.precioKg} onChange={(e) => editar("precioKg", e.target.value)} /></label><label>Precio de venta (ARS)<input type="number" min="0" value={config.precioVenta} onChange={(e) => editar("precioVenta", e.target.value)} /></label></div>
           <div className="lamp-actions">
             <button className="btn-secondary" type="button" onClick={guardarProducto}><Save size={14} /> Guardar en Productos</button>
-            <button className="btn-accent" type="button" disabled={encastreInvalido} onClick={() => exportarSTL(config)}><Download size={14} /> Descargar STL</button>
+            <button className="btn-accent" type="button" disabled={encastreInvalido} onClick={() => exportarSTL(config)}><Download size={14} /> Descargar pantalla STL</button><button className="btn-secondary" type="button" disabled={adaptadorInvalido} onClick={() => exportarAdaptadorSTL(config)}><Download size={14} /> Descargar anillo STL</button>
           </div>
           {mensaje && <p className="lamp-success" role="status"><CheckCircle2 size={14} /> {mensaje}</p>}
         </section>
@@ -274,8 +327,8 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
             </div>
             <div className="lamp-metrics"><div><span><Ruler size={13} /> DIMENSIONES</span><strong>{config.diametroInferior} × {config.altura} mm</strong></div><div><span><Layers size={13} /> FILAMENTO EST.</span><strong>{pesoEstimado.toFixed(0)} g</strong></div><div><span><Palette size={13} /> COSTO MATERIAL</span><strong>{formatPrice(costoMaterial)}</strong></div></div>
           </div>
-          <div className="lamp-info-grid"><div className="lamp-info-card"><CheckCircle2 size={16} /><div><strong>Pantalla lista para laminar</strong><span>STL en milímetros · cascarón hueco · malla cerrada · geometría ajustable</span></div></div><div className="lamp-info-card"><AlertTriangle size={16} /><div><strong>Compatibilidad</strong><span>Confirmá el encastre y el volumen útil de tu impresora antes de imprimir.</span></div></div></div>
-          {encastreInvalido && <div className="lamp-warning"><AlertTriangle size={15} /> La abertura superior es menor que el encastre de {config.portal} seleccionado ({diametroMinimo} mm). Ajustá el diámetro antes de exportar.</div>}
+          <div className="lamp-info-grid"><div className="lamp-info-card"><CheckCircle2 size={16} /><div><strong>Pantalla lista para laminar</strong><span>STL en milímetros · cascarón hueco · malla cerrada · geometría ajustable</span></div></div><div className="lamp-info-card"><AlertTriangle size={16} /><div><strong>Portalámparas real</strong><span>El anillo es una pieza mecánica imprimible; medí el portalámparas y verificá la holgura. No incluye componentes eléctricos.</span></div></div></div>
+          {(encastreInvalido || adaptadorInvalido) && <div className="lamp-warning"><AlertTriangle size={15} /> {encastreInvalido ? "La abertura superior es menor que la medida inicial para " + config.portal + " (" + diametroMinimo + " mm)." : "El anillo no tiene pared suficiente entre el paso central y el borde."} Revisá las medidas antes de exportar.</div>}
           <p className="lamp-safety">El STL contiene solo la pantalla decorativa. Verificá la compatibilidad térmica y eléctrica con los componentes de iluminación que uses.</p>
         </section>
       </div>
