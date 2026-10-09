@@ -128,7 +128,7 @@ function colorSombreado(color, brillo) {
   return `rgb(${Math.round(((n >> 16) & 255) * factor)},${Math.round(((n >> 8) & 255) * factor)},${Math.round((n & 255) * factor)})`;
 }
 
-function VistaMalla({ config, giro, zoom, onGiro }) {
+function VistaMalla({ config, rotacion, zoom, onRotacion }) {
   const canvasRef = useRef(null);
   const arrastre = useRef(null);
   useEffect(() => {
@@ -149,17 +149,20 @@ function VistaMalla({ config, giro, zoom, onGiro }) {
       ctx.beginPath(); ctx.moveTo(0, sueloY + i * 18); ctx.lineTo(ancho, sueloY + i * 18); ctx.stroke();
     }
     const caras = crearMalla(config, Math.max(12, Number(config.lados) || 96), 28);
-    const yaw = giro * Math.PI / 180;
-    const pitch = 15 * Math.PI / 180;
+    const ax = rotacion.x * Math.PI / 180;
+    const ay = rotacion.y * Math.PI / 180;
+    const az = rotacion.z * Math.PI / 180;
     const escala = Math.min(ancho / (Math.max(Number(config.diametroInferior), Number(config.diametroCuerpo) || 0) * 2.5), alto / (Number(config.altura) * 1.8)) * zoom;
     const luz = [-0.45, -0.55, 0.7];
     const renderizadas = caras.map((cara) => {
       const puntos = cara.map(([x, y, z]) => {
-        const xr = x * Math.cos(yaw) - y * Math.sin(yaw);
-        const yr = x * Math.sin(yaw) + y * Math.cos(yaw);
-        const yp = yr * Math.cos(pitch) - z * Math.sin(pitch);
-        const zp = yr * Math.sin(pitch) + z * Math.cos(pitch);
-        return { x: ancho / 2 + xr * escala, y: alto * 0.72 - zp * escala, depth: yp };
+        const yx = y * Math.cos(ax) - z * Math.sin(ax);
+        const zx = y * Math.sin(ax) + z * Math.cos(ax);
+        const xy = x * Math.cos(ay) + zx * Math.sin(ay);
+        const zy = -x * Math.sin(ay) + zx * Math.cos(ay);
+        const xz = xy * Math.cos(az) - yx * Math.sin(az);
+        const yz = xy * Math.sin(az) + yx * Math.cos(az);
+        return { x: ancho / 2 + xz * escala, y: alto * 0.72 - zy * escala, depth: yz };
       });
       const ab = cara[1].map((v, i) => v - cara[0][i]);
       const ac = cara[2].map((v, i) => v - cara[0][i]);
@@ -181,14 +184,15 @@ function VistaMalla({ config, giro, zoom, onGiro }) {
     }
     ctx.fillStyle = "rgba(255,255,255,.55)";
     ctx.font = "12px sans-serif";
-    ctx.fillText("VISTA 3D · ARRASTRÁ PARA GIRAR", 20, 28);
-  }, [config, giro, zoom]);
-  return <canvas ref={canvasRef} className="lamp-canvas" width="760" height="540" aria-label="Vista previa tridimensional de la pantalla" onPointerDown={(e) => { arrastre.current = { x: e.clientX, giro }; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={(e) => { if (arrastre.current) onGiro(arrastre.current.giro + (e.clientX - arrastre.current.x) * 0.7); }} onPointerUp={() => { arrastre.current = null; }} onPointerCancel={() => { arrastre.current = null; }} />;
+    ctx.fillText("VISTA 3D · ARRASTRÁ: X VERTICAL · Z HORIZONTAL", 20, 28);
+  }, [config, rotacion, zoom]);
+  const acotarGiro = (angulo) => ((angulo + 180) % 360 + 360) % 360 - 180;
+  return <canvas ref={canvasRef} className="lamp-canvas" width="760" height="540" aria-label="Vista previa tridimensional, arrastrá para rotar en los ejes X y Z" onPointerDown={(e) => { arrastre.current = { x: e.clientX, y: e.clientY, rotacion: { ...rotacion } }; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={(e) => { if (arrastre.current) { const inicio = arrastre.current; onRotacion({ ...inicio.rotacion, x: Math.max(-180, Math.min(180, inicio.rotacion.x + (e.clientY - inicio.y) * 0.7)), z: acotarGiro(inicio.rotacion.z + (e.clientX - inicio.x) * 0.7) }); } }} onPointerUp={() => { arrastre.current = null; }} onPointerCancel={() => { arrastre.current = null; }} />;
 }
 
 export default function LampDesigner({ settings, onSettingsChange, addProduct }) {
   const [config, setConfig] = useState(() => ({ ...BASE, ...(settings || {}) }));
-  const [giro, setGiro] = useState(-22);
+  const [rotacion, setRotacion] = useState({ x: 15, y: 0, z: -22 });
   const [zoom, setZoom] = useState(1);
   const [mensaje, setMensaje] = useState("");
   const onSettingsChangeRef = useRef(onSettingsChange);
@@ -263,7 +267,11 @@ export default function LampDesigner({ settings, onSettingsChange, addProduct })
         <section className="lamp-preview-column">
           <div className="panel lamp-preview-panel">
             <div className="lamp-preview-top"><div><span className="lamp-eyebrow"><Rotate3D size={13} /> VISTA INTERACTIVA</span><h3>{config.nombre || "Tu diseño"}</h3></div><div className="lamp-zoom"><button type="button" aria-label="Alejar" onClick={() => setZoom((z) => Math.max(0.6, z - 0.1))}>−</button><button type="button" aria-label="Acercar" onClick={() => setZoom((z) => Math.min(1.5, z + 0.1))}>+</button></div></div>
-            <VistaMalla config={config} giro={giro} zoom={zoom} onGiro={setGiro} />
+            <VistaMalla config={config} rotacion={rotacion} zoom={zoom} onRotacion={setRotacion} />
+            <div className="lamp-axis-controls" aria-label="Controles de rotación">
+              <div className="lamp-axis-heading"><strong>Giro por ejes</strong><button type="button" className="btn-secondary" onClick={() => setRotacion({ x: 15, y: 0, z: -22 })}>Restablecer vista</button></div>
+              {["x", "y", "z"].map((eje) => <label key={eje}><span>Eje {eje.toUpperCase()} <b>{Math.round(rotacion[eje])}°</b></span><input type="range" min="-180" max="180" step="1" value={rotacion[eje]} onChange={(e) => setRotacion((actual) => ({ ...actual, [eje]: Number(e.target.value) }))} /></label>)}
+            </div>
             <div className="lamp-metrics"><div><span><Ruler size={13} /> DIMENSIONES</span><strong>{config.diametroInferior} × {config.altura} mm</strong></div><div><span><Layers size={13} /> FILAMENTO EST.</span><strong>{pesoEstimado.toFixed(0)} g</strong></div><div><span><Palette size={13} /> COSTO MATERIAL</span><strong>{formatPrice(costoMaterial)}</strong></div></div>
           </div>
           <div className="lamp-info-grid"><div className="lamp-info-card"><CheckCircle2 size={16} /><div><strong>Pantalla lista para laminar</strong><span>STL en milímetros · cascarón hueco · malla cerrada · geometría ajustable</span></div></div><div className="lamp-info-card"><AlertTriangle size={16} /><div><strong>Compatibilidad</strong><span>Confirmá el encastre y el volumen útil de tu impresora antes de imprimir.</span></div></div></div>
