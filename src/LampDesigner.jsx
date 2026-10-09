@@ -25,7 +25,32 @@ const BASE = {
 
 const PORTALES = { E14: 28, E27: 42, GU10: 35, "A medida": 0 };
 
-function relieveDeTexturafunction relieveDeTextura(t, angulo, cfg) {
+function radioDePerfil(t, cfg) {
+  const abajo = Number(cfg.diametroInferior) / 2;
+  const arriba = Number(cfg.diametroSuperior) / 2;
+  const fuerza = 1.6 - (Number(cfg.curva ?? 50) / 100) * 1.2;
+  const perfil = (u) => {
+    const curva = Math.pow(u, fuerza);
+    const lineal = abajo + (arriba - abajo) * curva;
+    const mitad = (abajo + arriba) / 2;
+    const amplitudLibre = (Number(cfg.diametroCuerpo ?? 160) / 2) - mitad;
+    const presets = { campana: 14, "cúpula": 22, barril: 9, tulipa: 18, globo: 24, hongo: 28 };
+    const amp = cfg.forma === "libre" ? amplitudLibre : (presets[cfg.forma] || 0) + amplitudLibre * 0.35;
+    const pie = (Number(cfg.alaBase) || 0) * Math.exp(-u * 28);
+    const boca = (Number(cfg.alaSuperior) || 0) * Math.exp(-(1 - u) * 28);
+    return Math.max(Number(cfg.espesor) + 1, lineal + Math.sin(Math.PI * u) * amp + pie + boca);
+  };
+  const largoCuello = Math.min(0.4, Math.max(0, Number(cfg.cuello || 0) / Math.max(1, Number(cfg.altura))));
+  const inicioCuello = 1 - largoCuello;
+  if (largoCuello > 0 && t > inicioCuello) {
+    const inicio = perfil(inicioCuello);
+    const avance = (t - inicioCuello) / largoCuello;
+    return inicio + (arriba + (Number(cfg.alaSuperior) || 0) - inicio) * avance;
+  }
+  return perfil(t);
+}
+
+function relieveDeTextura(t, angulo, cfg) {
   const n = Math.max(4, Number(cfg.canales) || 24);
   const amplitud = Number(cfg.relieve) || 0;
   const torsion = t * Math.PI * 2 * (Number(cfg.vueltas) || 0);
