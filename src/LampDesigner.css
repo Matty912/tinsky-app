@@ -1,0 +1,44 @@
+.lamp-designer .lamp-heading { align-items: flex-start; }
+.lamp-eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.lamp-subtitle { margin: 5px 0 0; color: var(--ink-soft); font-size: 13px; }
+.lamp-workspace { display: grid; grid-template-columns: minmax(310px, .8fr) minmax(400px, 1.2fr); gap: 16px; align-items: start; }
+.lamp-controls { display: grid; gap: 13px; }
+.lamp-controls label { display: flex; flex-direction: column; gap: 5px; color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.lamp-controls input, .lamp-controls select { width: 100%; min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--ink); background: var(--paper); font: inherit; }
+.lamp-input-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.lamp-step-title { display: flex; align-items: center; gap: 10px; margin: 3px 0 2px; }
+.lamp-step-title > span { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 800; }
+.lamp-step-title div { display: grid; gap: 2px; }
+.lamp-step-title strong { font-size: 13px; }
+.lamp-step-title small { color: var(--ink-soft); font-size: 11px; }
+.lamp-divider { height: 1px; background: var(--line); margin: 2px 0; }
+.lamp-color-row { display: flex; align-items: center; gap: 9px; min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; background: var(--paper); }
+.lamp-color-row input[type="color"] { width: 30px; height: 27px; min-height: 0; border: 0; padding: 0; background: transparent; }
+.lamp-color-row span { font-size: 11px; font-family: monospace; }
+.lamp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.lamp-actions button { flex: 1; justify-content: center; }
+.lamp-success { display: flex; align-items: center; gap: 6px; color: var(--success); font-size: 12px; margin: 0; }
+.lamp-preview-column { display: grid; gap: 12px; }
+.lamp-preview-panel { padding: 0; overflow: hidden; }
+.lamp-preview-top { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 12px; }
+.lamp-preview-top h3 { margin: 5px 0 0; font-size: 16px; }
+.lamp-zoom { display: flex; gap: 5px; }
+.lamp-zoom button { width: 31px; height: 31px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--paper); font-size: 18px; cursor: pointer; }
+.lamp-canvas { display: block; width: 100%; height: auto; aspect-ratio: 760 / 540; touch-action: none; cursor: grab; }
+.lamp-canvas:active { cursor: grabbing; }
+.lamp-metrics { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; padding: 12px; }
+.lamp-metrics > div { display: grid; gap: 6px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
+.lamp-metrics span { display: flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: 9px; font-weight: 700; letter-spacing: .05em; }
+.lamp-metrics strong { font-size: 12px; overflow-wrap: anywhere; }
+.lamp-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lamp-info-card { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+.lamp-info-card:first-child > svg { color: var(--success); flex-shrink: 0; }
+.lamp-info-card:last-child > svg { color: var(--accent); flex-shrink: 0; }
+.lamp-info-card div { display: grid; gap: 3px; }
+.lamp-info-card strong { font-size: 11px; }
+.lamp-info-card span { color: var(--ink-soft); font-size: 10px; line-height: 1.4; }
+.lamp-warning { display: flex; gap: 8px; align-items: flex-start; padding: 11px 12px; color: var(--warning); background: var(--warning-soft); border-radius: 9px; font-size: 12px; }
+.lamp-safety { margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+@media (max-width: 900px) { .lamp-workspace { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .lamp-input-grid { grid-template-columns: 1fr 1fr; } .lamp-info-grid { grid-template-columns: 1fr; } .lamp-metrics { grid-template-columns: 1fr; } .lamp-actions { flex-direction: column; } }
+
