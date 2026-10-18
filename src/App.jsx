@@ -2485,6 +2485,13 @@ function Presupuestos({ data, addPresupuesto, deletePresupuesto, aceptarPresupue
           );
         })}
       </div>
+      {fotoAmpliada && (
+        <div className="foto-lightbox" role="dialog" aria-modal="true" aria-label={`Foto de ${fotoAmpliada.nombre}`} onClick={() => setFotoAmpliada(null)}>
+          <button type="button" className="foto-lightbox-close" onClick={() => setFotoAmpliada(null)} aria-label="Cerrar vista previa"><X size={20} /></button>
+          <img src={fotoAmpliada.src} alt={fotoAmpliada.nombre} onClick={(e) => e.stopPropagation()} />
+          <p>{fotoAmpliada.nombre} · clic afuera para cerrar</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -2498,15 +2505,71 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
   const [orden, setOrden] = useState("publicacion");
   const [vendiendoId, setVendiendoId] = useState(null);
   const [venta, setVenta] = useState({ cantidad: 1, medioPago: MEDIOS_PAGO[0], precioVenta: "" });
+  const [arrastrandoFoto, setArrastrandoFoto] = useState(false);
+  const [ajusteFoto, setAjusteFoto] = useState({ zoom: 1, x: 50, y: 50 });
+  const [mostrarAjustesFoto, setMostrarAjustesFoto] = useState(false);
+  const [procesandoAjusteFoto, setProcesandoAjusteFoto] = useState(false);
+  const [fotoAmpliada, setFotoAmpliada] = useState(null);
 
-  const onFoto = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const procesarArchivoFoto = async (file) => {
+    if (!file || !file.type?.startsWith("image/")) return;
     try {
       const comprimida = await compressImage(file);
       setForm((f) => ({ ...f, foto: comprimida }));
+      setAjusteFoto({ zoom: 1, x: 50, y: 50 });
+      setMostrarAjustesFoto(false);
     } catch (err) {
-      console.error("No se pudo comprimir la imagen", err);
+      console.error("No se pudo cargar la imagen", err);
+      alert("No se pudo abrir esa imagen. Probá con otro formato.");
+    }
+  };
+
+  const onFoto = async (e) => {
+    await procesarArchivoFoto(e.target.files?.[0]);
+    e.target.value = "";
+  };
+
+  useEffect(() => {
+    if (!showForm) return undefined;
+    const pegarFoto = (e) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const imagen = items.find((item) => item.type?.startsWith("image/"))?.getAsFile();
+      if (!imagen) return;
+      e.preventDefault();
+      procesarArchivoFoto(imagen);
+    };
+    window.addEventListener("paste", pegarFoto);
+    return () => window.removeEventListener("paste", pegarFoto);
+  }, [showForm]);
+
+  const aplicarAjusteFoto = async () => {
+    if (!form.foto) return;
+    setProcesandoAjusteFoto(true);
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = form.foto;
+      });
+      const aspecto = 16 / 9;
+      const anchoBase = Math.min(img.naturalWidth, img.naturalHeight * aspecto);
+      const altoBase = anchoBase / aspecto;
+      const anchoRecorte = anchoBase / ajusteFoto.zoom;
+      const altoRecorte = altoBase / ajusteFoto.zoom;
+      const sx = (img.naturalWidth - anchoRecorte) * (ajusteFoto.x / 100);
+      const sy = (img.naturalHeight - altoRecorte) * (ajusteFoto.y / 100);
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 360;
+      canvas.getContext("2d").drawImage(img, sx, sy, anchoRecorte, altoRecorte, 0, 0, 640, 360);
+      setForm((f) => ({ ...f, foto: canvas.toDataURL("image/jpeg", 0.82) }));
+      setMostrarAjustesFoto(false);
+    } catch (err) {
+      console.error("No se pudo ajustar la imagen", err);
+      alert("No se pudo ajustar esta imagen. Probá volver a cargarla.");
+    } finally {
+      setProcesandoAjusteFoto(false);
     }
   };
 
@@ -2612,18 +2675,61 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
               <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required placeholder="Ej: Maceta hexagonal chica" />
             </label>
           </div>
-          <div className="foto-uploader">
+          <div
+            className={`foto-uploader foto-dropzone${arrastrandoFoto ? " dragging" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setArrastrandoFoto(true); }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastrandoFoto(false); }}
+            onDrop={(e) => { e.preventDefault(); setArrastrandoFoto(false); procesarArchivoFoto(e.dataTransfer.files?.[0]); }}
+            onPaste={(e) => {
+              const item = Array.from(e.clipboardData?.items || []).find((entry) => entry.type?.startsWith("image/"));
+              if (item) { e.preventDefault(); procesarArchivoFoto(item.getAsFile()); }
+            }}
+            tabIndex={0}
+            aria-label="Pegá o arrastrá una imagen del producto"
+          >
             {form.foto ? (
-              <img src={form.foto} alt="preview" className="foto-preview" />
+              <img src={form.foto} alt="Vista previa de la foto del producto" className="foto-preview" />
             ) : (
               <div className="foto-placeholder"><ImagePlus size={20} /></div>
             )}
-            <label className="foto-label">
-              Foto del producto (se comprime sola)
-              <input type="file" accept="image/*" onChange={onFoto} />
-            </label>
-            <QuitarFondoBoton foto={form.foto} onResult={(nueva) => setForm((f) => ({ ...f, foto: nueva }))} />
+            <div className="foto-upload-controls">
+              <strong>{arrastrandoFoto ? "Soltá la imagen acá" : "Pegá o arrastrá una foto"}</strong>
+              <span>También podés elegirla desde tu dispositivo</span>
+              <label className="foto-label foto-elegir">
+                <ImagePlus size={14} /> Elegir imagen
+                <input type="file" accept="image/*" onChange={onFoto} />
+              </label>
+              {form.foto && (
+                <div className="foto-tools">
+                  <button type="button" className="btn-mini" onClick={() => setMostrarAjustesFoto((v) => !v)}><Pencil size={12} /> Ajustar foto</button>
+                  <button type="button" className="btn-mini" onClick={() => setForm((f) => ({ ...f, foto: "" }))}><X size={12} /> Quitar</button>
+                  <QuitarFondoBoton foto={form.foto} onResult={(nueva) => setForm((f) => ({ ...f, foto: nueva }))} />
+                </div>
+              )}
+            </div>
           </div>
+          {mostrarAjustesFoto && form.foto && (
+            <div className="foto-editor">
+              <div className="foto-editor-preview">
+                <img src={form.foto} alt="Previsualización del encuadre" style={{ objectPosition: `${ajusteFoto.x}% ${ajusteFoto.y}%`, transform: `scale(${ajusteFoto.zoom})` }} />
+              </div>
+              <label>Zoom
+                <input type="range" min="1" max="3" step="0.05" value={ajusteFoto.zoom} onChange={(e) => setAjusteFoto((a) => ({ ...a, zoom: Number(e.target.value) }))} />
+              </label>
+              <div className="foto-editor-sliders">
+                <label>Horizontal
+                  <input type="range" min="0" max="100" value={ajusteFoto.x} onChange={(e) => setAjusteFoto((a) => ({ ...a, x: Number(e.target.value) }))} />
+                </label>
+                <label>Vertical
+                  <input type="range" min="0" max="100" value={ajusteFoto.y} onChange={(e) => setAjusteFoto((a) => ({ ...a, y: Number(e.target.value) }))} />
+                </label>
+              </div>
+              <div className="form-actions">
+                <button type="button" className="btn-secondary" onClick={() => { setAjusteFoto({ zoom: 1, x: 50, y: 50 }); setMostrarAjustesFoto(false); }}>Cancelar</button>
+                <button type="button" className="btn-accent" onClick={aplicarAjusteFoto} disabled={procesandoAjusteFoto}>{procesandoAjusteFoto ? "Aplicando…" : "Aplicar encuadre"}</button>
+              </div>
+            </div>
+          )}
           <div className="form-row">
             <label>
               Costo (material + tiempo)
@@ -2709,7 +2815,9 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
                 <button className="icon-btn" onClick={() => deleteProduct(p.id)}><Trash2 size={14} /></button>
               </div>
               {p.foto ? (
-                <img src={p.foto} alt={p.nombre} className="product-photo" />
+                <button type="button" className="product-photo-button" onClick={() => setFotoAmpliada({ src: p.foto, nombre: p.nombre })} aria-label={`Ver foto de ${p.nombre}`}>
+                  <img src={p.foto} alt={p.nombre} className="product-photo" />
+                </button>
               ) : (
                 <div className="product-photo placeholder"><ImagePlus size={22} /></div>
               )}
@@ -4295,7 +4403,17 @@ const CSS = `
   box-shadow: var(--shadow);
   padding: 16px;
 }
+.product-photo-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  text-align: left;
+}
 .product-photo {
+  display: block;
   width: 100%;
   height: 130px;
   object-fit: cover;
@@ -4311,27 +4429,62 @@ const CSS = `
 .foto-uploader {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  transition: border-color .15s, background .15s;
 }
+.foto-dropzone { cursor: default; }
+.foto-dropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
 .foto-preview {
-  width: 64px; height: 64px;
+  width: 132px; height: 76px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 9px;
   flex-shrink: 0;
+  background: var(--paper);
 }
 .foto-placeholder {
-  width: 64px; height: 64px;
-  border-radius: 10px;
+  width: 132px; height: 76px;
+  border-radius: 9px;
   border: 1px dashed var(--line);
   display: flex; align-items: center; justify-content: center;
   color: var(--ink-soft);
   flex-shrink: 0;
 }
-.foto-label {
-  display: flex; flex-direction: column; gap: 4px;
-  font-size: 12px; color: var(--ink-soft); font-weight: 500;
+.foto-upload-controls { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.foto-upload-controls strong { font-size: 13px; color: var(--ink); }
+.foto-upload-controls > span { font-size: 11px; color: var(--ink-soft); }
+.foto-label.foto-elegir {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  cursor: pointer;
 }
-.foto-label input { font-size: 12px; }
+.foto-elegir input { display: none; }
+.foto-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.foto-editor { margin-top: 10px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); display: flex; flex-direction: column; gap: 10px; }
+.foto-editor-preview { width: 100%; max-width: 440px; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 9px; background: var(--paper); }
+.foto-editor-preview img { width: 100%; height: 100%; object-fit: cover; }
+.foto-editor label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--ink-soft); }
+.foto-editor input[type="range"] { width: 100%; accent-color: var(--accent); }
+.foto-editor-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 640px; }
+.foto-lightbox { position: fixed; inset: 0; z-index: 1000; padding: 32px; background: rgba(0,0,0,.86); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; cursor: zoom-out; }
+.foto-lightbox img { max-width: min(92vw, 1200px); max-height: 82vh; object-fit: contain; border-radius: 10px; }
+.foto-lightbox p { color: white; font-size: 13px; margin: 0; }
+.foto-lightbox-close { position: absolute; top: 18px; right: 18px; display: flex; padding: 10px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; background: rgba(0,0,0,.4); color: white; cursor: pointer; }
+@media (max-width: 600px) {
+  .foto-uploader { align-items: flex-start; flex-wrap: wrap; }
+  .foto-preview, .foto-placeholder { width: 100%; height: auto; aspect-ratio: 16 / 9; }
+  .foto-editor-sliders { grid-template-columns: 1fr; }
+  .foto-lightbox { padding: 16px; }
+}
 .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
 .price-cell {
   display: flex; flex-direction: column; gap: 2px;
