@@ -3152,7 +3152,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <div className="breakdown-row"><span>Envío</span><span className="mono">{formatARS(envio)}</span></div>
 
           <div className="price-levels">
-            <div className="level rec"><span>{modoPrecio === "precio" ? "Tu precio" : "Recomendado"}</span><strong className="mono">{formatARS(recomendado)}</strong></div>
+            <div className="level rec"><span>{modoPrecio === "precio" ? "Tu precio por pieza" : "Precio sugerido por pieza"}</span><strong className="mono">{formatARS(recomendado)}</strong></div>
           </div>
 
           <div className="send-to-product">
