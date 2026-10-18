@@ -2493,6 +2493,7 @@ function Presupuestos({ data, addPresupuesto, deletePresupuesto, aceptarPresupue
 function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta }) {
   const emptyForm = { nombre: "", costo: "", precioUnitario: "", notas: "", foto: "", categoria: "", tiempoImpresionHoras: "", pesoGramos: "", mayoristaTiers: defaultTiers() };
   const [form, setForm] = useState(emptyForm);
+  const formRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [orden, setOrden] = useState("publicacion");
@@ -2503,6 +2504,14 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
   const [mostrarAjustesFoto, setMostrarAjustesFoto] = useState(false);
   const [procesandoAjusteFoto, setProcesandoAjusteFoto] = useState(false);
   const [fotoAmpliada, setFotoAmpliada] = useState(null);
+
+  useEffect(() => {
+    if (!showForm || !editingId) return undefined;
+    const frame = requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showForm, editingId]);
 
   const procesarArchivoFoto = async (file) => {
     if (!file || !file.type?.startsWith("image/")) return;
@@ -2660,7 +2669,7 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
       </div>
 
       {showForm && (
-        <form className="form-card" onSubmit={submit}>
+        <form ref={formRef} className="form-card" onSubmit={submit} style={{ scrollMarginTop: 16 }}>
           {editingId && <p className="mini-heading">Editando producto</p>}
           <div className="form-row">
             <label>
