@@ -2928,10 +2928,11 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   }, [selStock]);
 
   const cantidadBandejas = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0), 0);
+  const unidadesTotales = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0) * Math.max(1, Number(item.unidades) || 1), 0);
   const peso = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0) * Math.max(0, Number(item.gramos) || 0), 0);
   const horasTotales = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0) * (Math.max(0, Number(item.horas) || 0) + Math.max(0, Number(item.minutos) || 0) / 60), 0);
-  const horasPorBandeja = cantidadBandejas > 0 ? horasTotales / cantidadBandejas : 0;
-  const gramosPorBandeja = cantidadBandejas > 0 ? peso / cantidadBandejas : 0;
+  const horasPorUnidad = unidadesTotales > 0 ? horasTotales / unidadesTotales : 0;
+  const gramosPorUnidad = unidadesTotales > 0 ? peso / unidadesTotales : 0;
   const costoMaterial = (peso / 1000) * Number(precioKg || 0) * (1 + Number(desperdicio || 0) / 100);
   const costoElectricidad = horasTotales * (Number(potenciaW || 0) / 1000) * Number(precioKwh || 0);
   const costoManoObra = Number(horasTrabajoPersonal || 0) * Number(valorHora || 0);
@@ -2941,8 +2942,8 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const costoExtras = extras.reduce((acc, ex) => acc + (Number(ex.costo) || 0), 0);
 
   const subtotal = costoMaterial + costoElectricidad + costoManoObra + costoAmortizacion + costoExtras;
-  const costoPorBandeja = cantidadBandejas > 0 ? subtotal / cantidadBandejas : subtotal;
-  const baseUnitario = costoPorBandeja + Number(envio || 0);
+  const costoUnitario = unidadesTotales > 0 ? subtotal / unidadesTotales : subtotal;
+  const baseUnitario = costoUnitario + Number(envio || 0);
   const conMargen = baseUnitario * (1 + Number(margen || 0) / 100);
   const recomendadoPorMargen = Number(comision) < 100 ? conMargen / (1 - Number(comision || 0) / 100) : conMargen;
 
@@ -2959,7 +2960,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
     if (!addProduct) return;
     addProduct({
       nombre: nombreProducto || "Producto sin nombre",
-      costo: Math.round(costoPorBandeja),
+      costo: Math.round(costoUnitario),
       precioUnitario: Math.round(recomendado),
       notas: "Generado desde la calculadora",
       fechaCreacion: todayISO(),
@@ -2980,9 +2981,9 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       fechaEntrega,
       estado: "pendiente",
       notas: "Generado desde la calculadora",
-      costoEstimado: Math.round(costoPorBandeja * cant),
-      pesoEstimado: Math.round(gramosPorBandeja * cant),
-      tiempoEstimado: Math.round(horasPorBandeja * cant * 10) / 10,
+      costoEstimado: Math.round(costoUnitario * cant),
+      pesoEstimado: Math.round(gramosPorUnidad * cant),
+      tiempoEstimado: Math.round(horasPorUnidad * cant * 10) / 10,
     });
     setEnviado(true);
     setTimeout(() => setEnviado(false), 2500);
@@ -3132,7 +3133,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <h3>Resultado del cálculo</h3>
           <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s)</p>
           <p className="total-value mono">{formatARS(subtotal)}</p>
-          <div className="breakdown-row"><span>Costo promedio por bandeja</span><span className="mono">{formatARS(costoPorBandeja)}</span></div>
+          <div className="breakdown-row"><span>Costo promedio por bandeja</span><span className="mono">{formatARS(costoUnitario)}</span></div>
 
           <div className="pct-bars">
             <div className="pct-row"><span>Material</span><div className="pct-track"><div className="pct-fill accent" style={{ width: `${pct(costoMaterial)}%` }} /></div><span className="mono">{pct(costoMaterial)}%</span></div>
