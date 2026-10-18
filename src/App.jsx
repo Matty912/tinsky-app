@@ -2809,7 +2809,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const [enviado, setEnviado] = useState(false);
 
   const [selStock, setSelStock] = useState(c.selStock ?? "");
-  const [bandejas, setBandejas] = useState(c.bandejas?.length ? c.bandejas : [{ id: uid(), cantidad: 1, gramos: c.peso ?? 50, horas: c.horas ?? 3, minutos: c.minutos ?? 0 }]);
+  const [bandejas, setBandejas] = useState(c.bandejas?.length ? c.bandejas : [{ id: uid(), cantidad: 1, unidades: 1, gramos: c.peso ?? 50, horas: c.horas ?? 3, minutos: c.minutos ?? 0 }]);
   const [precioKg, setPrecioKg] = useState(c.precioKg ?? 15000);
   const [desperdicio, setDesperdicio] = useState(c.desperdicio ?? 10);
 
@@ -2833,7 +2833,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const [importandoGcode, setImportandoGcode] = useState(false);
   const [mensajeImportacion, setMensajeImportacion] = useState("");
 
-  const agregarBandeja = () => setBandejas((items) => [...items, { id: uid(), cantidad: 1, gramos: "", horas: 0, minutos: 0 }]);
+  const agregarBandeja = () => setBandejas((items) => [...items, { id: uid(), cantidad: 1, unidades: 1, gramos: "", horas: 0, minutos: 0 }]);
   const quitarBandeja = (id) => setBandejas((items) => items.length > 1 ? items.filter((item) => item.id !== id) : items);
   const actualizarBandeja = (id, patch) => setBandejas((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
   const importarGcode = async (event) => {
@@ -2866,7 +2866,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           continue;
         }
         const minutosTotal = Math.round(segundos / 60);
-        filas.push({ id: uid(), nombre: archivo.name, cantidad: 1, gramos: Math.round(gramos * 100) / 100, horas: Math.floor(minutosTotal / 60), minutos: minutosTotal % 60 });
+        filas.push({ id: uid(), nombre: archivo.name, cantidad: 1, unidades: 1, gramos: Math.round(gramos * 100) / 100, horas: Math.floor(minutosTotal / 60), minutos: minutosTotal % 60 });
       } catch {
         errores.push(archivo.name + ": no se pudo leer el archivo");
       }
@@ -2998,7 +2998,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       <div className="calc-grid">
         <div className="accordion-stack">
           <AccordionSection icon={Layers} color="accent" title="Bandejas de impresión" subtitle="Cantidad, gramos y tiempo por bandeja" open={open.bandejas} onToggle={() => toggle("bandejas")}>
-            <p className="hint">Agregá una fila por cada tipo de bandeja. Si varias son iguales, poné cuántas vas a imprimir y los datos de una sola.</p>
+            <p className="hint">Cargá los gramos y el tiempo totales que marca el laminador para una bandeja, e indicá cuántas piezas iguales salen en ella. El cálculo divide el costo entre esas piezas.</p>
             <label className="btn-secondary" style={{ display: "inline-flex", width: "fit-content", cursor: importandoGcode ? "wait" : "pointer" }}>
               <FileText size={14} /> {importandoGcode ? "Leyendo archivos…" : "Importar G-code de Creality Print"}
               <input type="file" accept=".gcode,.gco,.gc" multiple disabled={importandoGcode} onChange={importarGcode} style={{ display: "none" }} />
@@ -3010,6 +3010,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
                 {item.nombre && <p className="hint">{item.nombre}</p>}
                 <div className="form-row">
                   <label>Cantidad de bandejas<input type="number" min="1" step="1" value={item.cantidad} onChange={(e) => actualizarBandeja(item.id, { cantidad: e.target.value })} /></label>
+                  <label>Piezas iguales por bandeja<input type="number" min="1" step="1" value={item.unidades ?? 1} onChange={(e) => actualizarBandeja(item.id, { unidades: e.target.value })} /></label>
                   <label>Filamento por bandeja (g)<input type="number" min="0" step="0.1" value={item.gramos} onChange={(e) => actualizarBandeja(item.id, { gramos: e.target.value })} /></label>
                   {bandejas.length > 1 && <button type="button" className="icon-btn" aria-label={`Quitar fila ${index + 1}`} onClick={() => quitarBandeja(item.id)}><X size={14} /></button>}
                 </div>
@@ -3020,7 +3021,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
               </div>
             ))}
             <button type="button" className="btn-secondary" onClick={agregarBandeja}><Plus size={14} /> Agregar otro tipo de bandeja</button>
-            <p className="hint">Total: {cantidadBandejas} bandeja(s) · {peso.toFixed(1)} g · {horasTotales.toFixed(2)} h de impresión</p>
+            <p className="hint">Total: {cantidadBandejas} bandeja(s) · {unidadesTotales} pieza(s) · {peso.toFixed(1)} g · {horasTotales.toFixed(2)} h</p>
           </AccordionSection>
           <AccordionSection icon={Tags} color="accent" title="Material" subtitle="Filamento y desperdicio" open={open.material} onToggle={() => toggle("material")}>
             <label>
@@ -3131,9 +3132,9 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
 
         <div className="panel breakdown sticky">
           <h3>Resultado del cálculo</h3>
-          <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s)</p>
+          <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s) / {unidadesTotales} piezas</p>
           <p className="total-value mono">{formatARS(subtotal)}</p>
-          <div className="breakdown-row"><span>Costo promedio por bandeja</span><span className="mono">{formatARS(costoUnitario)}</span></div>
+          <div className="breakdown-row"><span>Costo por pieza</span><span className="mono">{formatARS(costoUnitario)}</span></div>
 
           <div className="pct-bars">
             <div className="pct-row"><span>Material</span><div className="pct-track"><div className="pct-fill accent" style={{ width: `${pct(costoMaterial)}%` }} /></div><span className="mono">{pct(costoMaterial)}%</span></div>
