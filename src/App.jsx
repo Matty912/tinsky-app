@@ -2485,13 +2485,6 @@ function Presupuestos({ data, addPresupuesto, deletePresupuesto, aceptarPresupue
           );
         })}
       </div>
-      {fotoAmpliada && (
-        <div className="foto-lightbox" role="dialog" aria-modal="true" aria-label={`Foto de ${fotoAmpliada.nombre}`} onClick={() => setFotoAmpliada(null)}>
-          <button type="button" className="foto-lightbox-close" onClick={() => setFotoAmpliada(null)} aria-label="Cerrar vista previa"><X size={20} /></button>
-          <img src={fotoAmpliada.src} alt={fotoAmpliada.nombre} onClick={(e) => e.stopPropagation()} />
-          <p>{fotoAmpliada.nombre} · clic afuera para cerrar</p>
-        </div>
-      )}
     </div>
   );
 }
@@ -2867,6 +2860,13 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
           );
         })}
       </div>
+      {fotoAmpliada && (
+        <div className="foto-lightbox" role="dialog" aria-modal="true" aria-label={`Foto de ${fotoAmpliada.nombre}`} onClick={() => setFotoAmpliada(null)}>
+          <button type="button" className="foto-lightbox-close" onClick={() => setFotoAmpliada(null)} aria-label="Cerrar vista previa"><X size={20} /></button>
+          <img src={fotoAmpliada.src} alt={fotoAmpliada.nombre} onClick={(e) => e.stopPropagation()} />
+          <p>{fotoAmpliada.nombre} · clic afuera para cerrar</p>
+        </div>
+      )}
     </div>
   );
 }
