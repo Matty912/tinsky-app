@@ -2545,7 +2545,7 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
         img.onerror = reject;
         img.src = form.foto;
       });
-      const aspecto = 16 / 9;
+      const aspecto = 4 / 3;
       const anchoBase = Math.min(img.naturalWidth, img.naturalHeight * aspecto);
       const altoBase = anchoBase / aspecto;
       const anchoRecorte = anchoBase / ajusteFoto.zoom;
@@ -2554,8 +2554,8 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
       const sy = (img.naturalHeight - altoRecorte) * (ajusteFoto.y / 100);
       const canvas = document.createElement("canvas");
       canvas.width = 640;
-      canvas.height = 360;
-      canvas.getContext("2d").drawImage(img, sx, sy, anchoRecorte, altoRecorte, 0, 0, 640, 360);
+      canvas.height = 480;
+      canvas.getContext("2d").drawImage(img, sx, sy, anchoRecorte, altoRecorte, 0, 0, 640, 480);
       setForm((f) => ({ ...f, foto: canvas.toDataURL("image/jpeg", 0.82) }));
       setMostrarAjustesFoto(false);
     } catch (err) {
@@ -4411,8 +4411,10 @@ const CSS = `
 .product-photo {
   display: block;
   width: 100%;
-  height: 130px;
-  object-fit: cover;
+  height: 200px;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  padding: 6px;
   border-radius: 10px;
   margin-bottom: 10px;
   background: var(--bg);
@@ -4435,14 +4437,14 @@ const CSS = `
 .foto-dropzone { cursor: default; }
 .foto-dropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
 .foto-preview {
-  width: 132px; height: 76px;
-  object-fit: cover;
+  width: 200px; height: 150px;
+  object-fit: contain;
   border-radius: 9px;
   flex-shrink: 0;
   background: var(--paper);
 }
 .foto-placeholder {
-  width: 132px; height: 76px;
+  width: 200px; height: 150px;
   border-radius: 9px;
   border: 1px dashed var(--line);
   display: flex; align-items: center; justify-content: center;
@@ -4466,7 +4468,7 @@ const CSS = `
 .foto-elegir input { display: none; }
 .foto-tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .foto-editor { margin-top: 10px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); display: flex; flex-direction: column; gap: 10px; }
-.foto-editor-preview { width: 100%; max-width: 440px; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 9px; background: var(--paper); }
+.foto-editor-preview { width: 100%; max-width: 520px; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 9px; background: var(--paper); }
 .foto-editor-preview img { width: 100%; height: 100%; object-fit: cover; }
 .foto-editor label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--ink-soft); }
 .foto-editor input[type="range"] { width: 100%; accent-color: var(--accent); }
@@ -4477,7 +4479,7 @@ const CSS = `
 .foto-lightbox-close { position: absolute; top: 18px; right: 18px; display: flex; padding: 10px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; background: rgba(0,0,0,.4); color: white; cursor: pointer; }
 @media (max-width: 600px) {
   .foto-uploader { align-items: flex-start; flex-wrap: wrap; }
-  .foto-preview, .foto-placeholder { width: 100%; height: auto; aspect-ratio: 16 / 9; }
+  .foto-preview, .foto-placeholder { width: 100%; height: auto; aspect-ratio: 4 / 3; }
   .foto-editor-sliders { grid-template-columns: 1fr; }
   .foto-lightbox { padding: 16px; }
 }
