@@ -2680,10 +2680,6 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
             onDragOver={(e) => { e.preventDefault(); setArrastrandoFoto(true); }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastrandoFoto(false); }}
             onDrop={(e) => { e.preventDefault(); setArrastrandoFoto(false); procesarArchivoFoto(e.dataTransfer.files?.[0]); }}
-            onPaste={(e) => {
-              const item = Array.from(e.clipboardData?.items || []).find((entry) => entry.type?.startsWith("image/"));
-              if (item) { e.preventDefault(); procesarArchivoFoto(item.getAsFile()); }
-            }}
             tabIndex={0}
             aria-label="Pegá o arrastrá una imagen del producto"
           >
