@@ -3437,7 +3437,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <h3>Resultado del cálculo</h3>
           <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s) / {unidadesTotales} piezas</p>
           <p className="total-value mono">{formatARS(subtotal)}</p>
-          <div className="breakdown-row"><span>{modoVenta === "grupal" ? "Costo por producto / grupo" : "Costo por pieza"}</span><span className="mono">{formatARS(costoUnitario)}</span></div>
+          <div className="breakdown-row"><span>{modoVenta === "grupal" ? "Costo por producto armado" : "Costo por pieza"}</span><span className="mono">{formatARS(costoUnitario)}</span></div>
 
           <div className="pct-bars">
             <div className="pct-row"><span>Material</span><div className="pct-track"><div className="pct-fill accent" style={{ width: `${pct(costoMaterial)}%` }} /></div><span className="mono">{pct(costoMaterial)}%</span></div>
@@ -3462,7 +3462,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
               <strong className="mono">{formatARS(recomendado)}</strong>
             </div>
             <div className="level full">
-              <span>Precio completo del lote · {unidadesVenta} {modoVenta === "grupal" ? "grupo(s)" : "pieza(s)"}</span>
+              <span>Precio total del lote · {unidadesVenta} {modoVenta === "grupal" ? (unidadesVenta === 1 ? "producto armado" : "productos armados") : (unidadesVenta === 1 ? "pieza" : "piezas")}</span>
               <strong className="mono">{formatARS(recomendado * unidadesVenta)}</strong>
             </div>
           </div>
