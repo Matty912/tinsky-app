@@ -186,6 +186,7 @@ export const storage = {
         dirty: false,
         conflict: false,
         baseCloudAt: cloud?.updated_at || null,
+        baseCloudHash: await valueHash(cloud?.value ?? null),
       };
       await putRecord(local);
       publish("synced", "Todos los cambios están sincronizados.");
