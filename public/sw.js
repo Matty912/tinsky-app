@@ -2,7 +2,13 @@ const CACHE_NAME = "tinsky-shell-v1";
 const SHELL = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    fetch("/precache-assets.json", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : [])
+      .catch(() => [])
+      .then((assets) => caches.open(CACHE_NAME).then((cache) => cache.addAll([...SHELL, ...assets])))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
