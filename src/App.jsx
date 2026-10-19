@@ -3084,6 +3084,8 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const [nombreProducto, setNombreProducto] = useState(c.nombreProducto ?? "");
   const [cliente, setCliente] = useState(c.cliente ?? "");
   const [cantidad, setCantidad] = useState(c.cantidad ?? 1);
+  const [modoVenta, setModoVenta] = useState(c.modoVenta ?? "individual");
+  const [piezasPorProducto, setPiezasPorProducto] = useState(c.piezasPorProducto ?? 2);
   const [fechaEntrega, setFechaEntrega] = useState(c.fechaEntrega ?? "");
   const [enviado, setEnviado] = useState(false);
 
@@ -3184,7 +3186,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       if (updateCalc) {
         updateCalc({
           open, destino, nombreProducto, cliente, cantidad, fechaEntrega,
-          selStock, bandejas, precioKg, desperdicio, potenciaW,
+          modoVenta, piezasPorProducto, selStock, bandejas, precioKg, desperdicio, potenciaW,
           precioKwh, valorHora, horasTrabajoPersonal, precioImpresora,
           vidaUtilHoras, mantenimientoMes, horasUsoMensual, margen, envio, comision,
           extras, modoPrecio, precioFinalManual,
@@ -3194,7 +3196,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
     return () => clearTimeout(t);
   }, [
     open, destino, nombreProducto, cliente, cantidad, fechaEntrega,
-    selStock, bandejas, precioKg, desperdicio, potenciaW,
+    modoVenta, piezasPorProducto, selStock, bandejas, precioKg, desperdicio, potenciaW,
     precioKwh, valorHora, horasTrabajoPersonal, precioImpresora,
     vidaUtilHoras, mantenimientoMes, horasUsoMensual, margen, envio, comision,
     extras, modoPrecio, precioFinalManual,
@@ -3212,6 +3214,11 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const horasTotales = bandejas.reduce((sum, item) => sum + Math.max(0, Number(item.cantidad) || 0) * (Math.max(0, Number(item.horas) || 0) + Math.max(0, Number(item.minutos) || 0) / 60), 0);
   const horasPorUnidad = unidadesTotales > 0 ? horasTotales / unidadesTotales : 0;
   const gramosPorUnidad = unidadesTotales > 0 ? peso / unidadesTotales : 0;
+  const piezasPorVentaNum = modoVenta === "grupal" ? Math.max(1, Math.floor(Number(piezasPorProducto) || 1)) : 1;
+  const unidadesVenta = Math.floor(unidadesTotales / piezasPorVentaNum);
+  const piezasFueraDeGrupo = unidadesTotales % piezasPorVentaNum;
+  const horasPorVenta = unidadesVenta > 0 ? horasTotales / unidadesVenta : 0;
+  const gramosPorVenta = unidadesVenta > 0 ? peso / unidadesVenta : 0;
   const costoMaterial = (peso / 1000) * Number(precioKg || 0) * (1 + Number(desperdicio || 0) / 100);
   const costoElectricidad = horasTotales * (Number(potenciaW || 0) / 1000) * Number(precioKwh || 0);
   const costoManoObra = Number(horasTrabajoPersonal || 0) * Number(valorHora || 0);
@@ -3221,7 +3228,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
   const costoExtras = extras.reduce((acc, ex) => acc + (Number(ex.costo) || 0), 0);
 
   const subtotal = costoMaterial + costoElectricidad + costoManoObra + costoAmortizacion + costoExtras;
-  const costoUnitario = unidadesTotales > 0 ? subtotal / unidadesTotales : subtotal;
+  const costoUnitario = unidadesVenta > 0 ? subtotal / unidadesVenta : 0;
   const baseUnitario = costoUnitario + Number(envio || 0);
   const conMargen = baseUnitario * (1 + Number(margen || 0) / 100);
   const recomendadoPorMargen = Number(comision) < 100 ? conMargen / (1 - Number(comision || 0) / 100) : conMargen;
@@ -3261,8 +3268,8 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       estado: "pendiente",
       notas: "Generado desde la calculadora",
       costoEstimado: Math.round(costoUnitario * cant),
-      pesoEstimado: Math.round(gramosPorUnidad * cant),
-      tiempoEstimado: Math.round(horasPorUnidad * cant * 10) / 10,
+      pesoEstimado: Math.round(gramosPorVenta * cant),
+      tiempoEstimado: Math.round(horasPorVenta * cant * 10) / 10,
     });
     setEnviado(true);
     setTimeout(() => setEnviado(false), 2500);
@@ -3300,7 +3307,26 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
               </div>
             ))}
             <button type="button" className="btn-secondary" onClick={agregarBandeja}><Plus size={14} /> Agregar otro tipo de bandeja</button>
-            <p className="hint">Total: {cantidadBandejas} bandeja(s) · {unidadesTotales} pieza(s) · {peso.toFixed(1)} g · {horasTotales.toFixed(2)} h</p>
+            <p className="hint">Total: {cantidadBandejas} bandeja(s) · {unidadesTotales} pieza(s) impresas · {peso.toFixed(1)} g · {horasTotales.toFixed(2)} h</p>
+            <div className="sale-unit-config">
+              <p className="hint"><strong>¿Cómo vas a vender esta impresión?</strong></p>
+              <div className="destino-toggle">
+                <button type="button" className={modoVenta === "individual" ? "active" : ""} onClick={() => setModoVenta("individual")}>Por pieza individual</button>
+                <button type="button" className={modoVenta === "grupal" ? "active" : ""} onClick={() => setModoVenta("grupal")}>Por grupo / producto armado</button>
+              </div>
+              {modoVenta === "grupal" && (
+                <label>
+                  Piezas impresas que forman cada producto o grupo
+                  <input type="number" min="1" step="1" value={piezasPorProducto} onChange={(e) => setPiezasPorProducto(e.target.value)} />
+                </label>
+              )}
+              {modoVenta === "grupal" && unidadesVenta === 0 && (
+                <p className="hint" role="alert">Todavía no alcanza para formar un grupo completo. Agregá piezas o bajá la cantidad por grupo.</p>
+              )}
+              {modoVenta === "grupal" && piezasFueraDeGrupo > 0 && unidadesVenta > 0 && (
+                <p className="hint">Salen {unidadesVenta} grupo(s) completos y quedan {piezasFueraDeGrupo} pieza(s) sueltas. El costo total se reparte entre los grupos.</p>
+              )}
+            </div>
           </AccordionSection>
           <AccordionSection icon={Tags} color="accent" title="Material" subtitle="Filamento y desperdicio" open={open.material} onToggle={() => toggle("material")}>
             <label>
@@ -3413,7 +3439,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <h3>Resultado del cálculo</h3>
           <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s) / {unidadesTotales} piezas</p>
           <p className="total-value mono">{formatARS(subtotal)}</p>
-          <div className="breakdown-row"><span>Costo por pieza</span><span className="mono">{formatARS(costoUnitario)}</span></div>
+          <div className="breakdown-row"><span>{modoVenta === "grupal" ? "Costo por producto / grupo" : "Costo por pieza"}</span><span className="mono">{formatARS(costoUnitario)}</span></div>
 
           <div className="pct-bars">
             <div className="pct-row"><span>Material</span><div className="pct-track"><div className="pct-fill accent" style={{ width: `${pct(costoMaterial)}%` }} /></div><span className="mono">{pct(costoMaterial)}%</span></div>
@@ -3432,12 +3458,12 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
 
           <div className="price-levels">
             <div className="level rec">
-              <span>{modoPrecio === "precio" ? "Tu precio por pieza" : "Precio sugerido por pieza"}</span>
+              <span>{modoPrecio === "precio" ? "Tu precio por unidad de venta" : "Precio sugerido por " + (modoVenta === "grupal" ? "producto / grupo" : "pieza")}</span>
               <strong className="mono">{formatARS(recomendado)}</strong>
             </div>
             <div className="level full">
-              <span>Precio completo · {unidadesTotales} piezas</span>
-              <strong className="mono">{formatARS(recomendado * unidadesTotales)}</strong>
+              <span>Precio completo del lote · {unidadesVenta} {modoVenta === "grupal" ? "grupo(s)" : "pieza(s)"}</span>
+              <strong className="mono">{formatARS(recomendado * unidadesVenta)}</strong>
             </div>
           </div>
 
@@ -3475,11 +3501,11 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
             )}
 
             {destino === "producto" ? (
-              <button className="btn-accent" onClick={enviarAProducto} type="button">
+              <button className="btn-accent" onClick={enviarAProducto} type="button" disabled={unidadesVenta === 0}>
                 <Tags size={14} /> Enviar a Productos
               </button>
             ) : (
-              <button className="btn-accent" onClick={enviarAPedido} type="button">
+              <button className="btn-accent" onClick={enviarAPedido} type="button" disabled={unidadesVenta === 0}>
                 <Package size={14} /> Crear pedido ({formatARS(recomendado * (Number(cantidad) || 1))})
               </button>
             )}
