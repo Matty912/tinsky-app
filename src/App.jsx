@@ -2728,6 +2728,24 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
     setShowForm(false);
   };
 
+  const alternarFormularioProducto = async () => {
+    if (editingId) {
+      await cancelarForm();
+      setForm(emptyForm);
+      setArchivo3mfOriginal(null);
+      setShowForm(true);
+      return;
+    }
+    if (showForm) {
+      await cancelarForm();
+      return;
+    }
+    setForm(emptyForm);
+    setArchivo3mfOriginal(null);
+    setError3mf("");
+    setShowForm(true);
+  };
+
   const ventasPorProducto = useMemo(() => {
     const map = {};
     (data.ventas || []).forEach((v) => {
@@ -2770,10 +2788,7 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
             <option value="alfabetico">Alfabético</option>
             <option value="vendidos">Más vendidos</option>
           </select>
-          <button className="btn-accent" onClick={() => {
-            if (editingId) { setForm(emptyForm); setEditingId(null); setShowForm(true); }
-            else setShowForm((s) => !s);
-          }}>
+          <button className="btn-accent" type="button" onClick={alternarFormularioProducto}>
             <Plus size={16} /> Nuevo producto
           </button>
         </div>
