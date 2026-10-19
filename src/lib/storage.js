@@ -9,8 +9,8 @@ let activeUserId = null;
 let syncStatus = { state: "synced", message: "" };
 const listeners = new Set();
 
-function publish(state, message = "") {
-  syncStatus = { state, message };
+function publish(state, message = "", key = null) {
+  syncStatus = { state, message, key };
   listeners.forEach((listener) => listener(syncStatus));
 }
 
@@ -122,7 +122,7 @@ async function uploadRecord(record, session, cloudRecord) {
   if (record.baseCloudAt !== cloudVersion) {
     record.conflict = true;
     await putRecord(record);
-    publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.");
+    publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", record.key);
     return false;
   }
   const updatedAt = new Date().toISOString();
@@ -157,7 +157,7 @@ export const storage = {
       const cloud = await fetchCloud(key, userId);
       if (local?.dirty) {
         if (local.conflict) {
-          publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.");
+          publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", key);
           return local.value;
         }
         if (local.baseCloudAt !== (cloud?.updated_at || null)) {
