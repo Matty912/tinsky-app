@@ -59,6 +59,13 @@ async function withStore(mode, operation) {
   });
 }
 
+async function valueHash(value) {
+  if (value == null) return null;
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function itemId(userId, key) {
   return `${userId}::${key}`;
 }
@@ -119,7 +126,8 @@ async function uploadRecord(record, session, cloudRecord) {
     return false;
   }
   const cloudVersion = cloudRecord?.updated_at || null;
-  if (record.baseCloudAt !== cloudVersion) {
+  const cloudHash = await valueHash(cloudRecord?.value ?? null);
+  if (record.baseCloudAt !== cloudVersion || (record.baseCloudHash !== undefined && record.baseCloudHash !== cloudHash)) {
     record.conflict = true;
     await putRecord(record);
     publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", record.key);
@@ -135,7 +143,7 @@ async function uploadRecord(record, session, cloudRecord) {
     .select("updated_at")
     .single();
   if (error) throw new Error(error.message || error.code || "No se pudo sincronizar con Supabase.");
-  const saved = { ...record, dirty: false, conflict: false, baseCloudAt: data?.updated_at || updatedAt };
+  const saved = { ...record, dirty: false, conflict: false, baseCloudAt: data?.updated_at || updatedAt, baseCloudHash: await valueHash(record.value) };
   await putRecord(saved);
   return true;
 }
@@ -163,7 +171,7 @@ export const storage = {
         if (local.baseCloudAt !== (cloud?.updated_at || null)) {
           local.conflict = true;
           await putRecord(local);
-          publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", record.key);
+          publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", key);
           return local.value;
         }
         await uploadRecord(local, session, cloud);
@@ -200,6 +208,7 @@ export const storage = {
         local = {
           id: itemId(userId, key), userId, key, value: cloud?.value ?? null,
           dirty: false, conflict: false, baseCloudAt: cloud?.updated_at || null,
+          baseCloudHash: await valueHash(cloud?.value ?? null),
         };
       } catch {
         local = { id: itemId(userId, key), userId, key, value: null, dirty: false, conflict: false, baseCloudAt: null };
@@ -246,7 +255,7 @@ export const storage = {
     publish("syncing", "Sincronizando cambios guardados en este dispositivo…");
     for (const record of pending) {
       if (record.conflict) {
-        publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.");
+        publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", record.key);
         return;
       }
       try {
@@ -275,11 +284,13 @@ export const storage = {
         dirty: false,
         conflict: false,
         baseCloudAt: cloud?.updated_at || null,
+        baseCloudHash: await valueHash(cloud?.value ?? null),
       });
       publish("synced", "Se conservaron los datos de la nube.");
       return;
     }
     local.baseCloudAt = cloud?.updated_at || null;
+    local.baseCloudHash = await valueHash(cloud?.value ?? null);
     local.conflict = false;
     local.dirty = true;
     await putRecord(local);
