@@ -3431,7 +3431,14 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <div className="breakdown-row"><span>Envío</span><span className="mono">{formatARS(envio)}</span></div>
 
           <div className="price-levels">
-            <div className="level rec"><span>{modoPrecio === "precio" ? "Tu precio por pieza" : "Precio sugerido por pieza"}</span><strong className="mono">{formatARS(recomendado)}</strong></div>
+            <div className="level rec">
+              <span>{modoPrecio === "precio" ? "Tu precio por pieza" : "Precio sugerido por pieza"}</span>
+              <strong className="mono">{formatARS(recomendado)}</strong>
+            </div>
+            <div className="level full">
+              <span>Precio completo · {cantidadProductos} piezas</span>
+              <strong className="mono">{formatARS(recomendado * cantidadProductos)}</strong>
+            </div>
           </div>
 
           <div className="send-to-product">
@@ -4540,7 +4547,7 @@ const CSS = `
 .breakdown-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .breakdown-row.subtotal { font-weight: 600; border-bottom: 1px solid var(--ink); }
 
-.price-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
+.price-levels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
 .level {
   display: flex; flex-direction: column; gap: 4px;
   padding: 12px 10px;
@@ -4552,6 +4559,8 @@ const CSS = `
 .level strong { font-size: 14px; }
 .level.rec { background: var(--accent-soft); }
 .level.rec strong { color: var(--accent); font-size: 16px; }
+.level.full { background: var(--teal-soft); }
+.level.full strong { color: var(--teal); font-size: 16px; }
 
 .send-to-product { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 8px; }
 .send-to-product input {
