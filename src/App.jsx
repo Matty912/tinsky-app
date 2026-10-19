@@ -3436,8 +3436,8 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
               <strong className="mono">{formatARS(recomendado)}</strong>
             </div>
             <div className="level full">
-              <span>Precio completo · {cantidadProductos} piezas</span>
-              <strong className="mono">{formatARS(recomendado * cantidadProductos)}</strong>
+              <span>Precio completo · {unidadesTotales} piezas</span>
+              <strong className="mono">{formatARS(recomendado * unidadesTotales)}</strong>
             </div>
           </div>
 
