@@ -117,6 +117,8 @@ const FONTS_LINK = "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@
 
 const STORAGE_KEY = "tinsky-app-data";
 const THEME_KEY = "tinsky-theme";
+const PRODUCT_3MF_BUCKET = "tinsky-product-3mf";
+const MAX_PRODUCT_3MF_BYTES = 50 * 1024 * 1024;
 
 const MATERIALES = ["PLA", "PETG", "TPU", "ABS", "Nylon", "Otro"];
 const ESTADOS_PEDIDO = [
@@ -500,9 +502,11 @@ export default function App() {
     try {
       await storage.setItem(STORAGE_KEY, JSON.stringify(next));
       setSaveError(null);
+      return true;
     } catch (e) {
       console.error("No se pudo guardar", e);
       setSaveError(e.message || "No se pudo guardar el último cambio.");
+      return false;
     }
   }, []);
 
@@ -2491,7 +2495,7 @@ function Presupuestos({ data, addPresupuesto, deletePresupuesto, aceptarPresupue
 
 // ============================= PRODUCTOS =============================
 function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta }) {
-  const emptyForm = { nombre: "", costo: "", precioUnitario: "", notas: "", foto: "", categoria: "", tiempoImpresionHoras: "", pesoGramos: "", mayoristaTiers: defaultTiers() };
+  const emptyForm = { nombre: "", costo: "", precioUnitario: "", notas: "", foto: "", archivo3mf: null, categoria: "", tiempoImpresionHoras: "", pesoGramos: "", mayoristaTiers: defaultTiers() };
   const [form, setForm] = useState(emptyForm);
   const formRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
@@ -2504,6 +2508,11 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
   const [mostrarAjustesFoto, setMostrarAjustesFoto] = useState(false);
   const [procesandoAjusteFoto, setProcesandoAjusteFoto] = useState(false);
   const [fotoAmpliada, setFotoAmpliada] = useState(null);
+  const [archivo3mfOriginal, setArchivo3mfOriginal] = useState(null);
+  const [arrastrando3mf, setArrastrando3mf] = useState(false);
+  const [subiendo3mf, setSubiendo3mf] = useState(false);
+  const [error3mf, setError3mf] = useState("");
+  const [descargando3mf, setDescargando3mf] = useState(null);
 
   useEffect(() => {
     if (!showForm || !editingId) return undefined;
@@ -2544,6 +2553,74 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
     return () => window.removeEventListener("paste", pegarFoto);
   }, [showForm]);
 
+  const cargarArchivo3mf = async (file) => {
+    if (!file) return;
+    setError3mf("");
+    if (!file.name.toLowerCase().endsWith(".3mf")) {
+      setError3mf("Elegí un archivo con formato .3mf.");
+      return;
+    }
+    if (file.size > MAX_PRODUCT_3MF_BYTES) {
+      setError3mf("El archivo supera el límite de 50 MB.");
+      return;
+    }
+    if (!supabase) {
+      setError3mf("No está disponible la conexión al almacenamiento.");
+      return;
+    }
+    setSubiendo3mf(true);
+    try {
+      const { data: sesion, error: errorSesion } = await supabase.auth.getSession();
+      if (errorSesion || !sesion?.session?.user?.id) throw new Error("Iniciá sesión para guardar el archivo.");
+      const userId = sesion.session.user.id;
+      const nombreSeguro = file.name.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "-");
+      const path = `${userId}/${uid()}/${nombreSeguro}`;
+      const { data: archivoSubido, error } = await supabase.storage.from(PRODUCT_3MF_BUCKET).upload(path, file, {
+        cacheControl: "3600",
+        contentType: "model/3mf",
+        upsert: false,
+      });
+      if (error) throw error;
+      const pathPrevio = form.archivo3mf?.path;
+      setForm((f) => ({ ...f, archivo3mf: { path: archivoSubido.path, nombre: file.name, tamano: file.size } }));
+      if (pathPrevio && pathPrevio !== archivo3mfOriginal) {
+        await supabase.storage.from(PRODUCT_3MF_BUCKET).remove([pathPrevio]);
+      }
+    } catch (err) {
+      console.error("No se pudo guardar el archivo 3MF", err);
+      setError3mf(err.message || "No se pudo guardar el archivo .3mf.");
+    } finally {
+      setSubiendo3mf(false);
+    }
+  };
+
+  const descargarArchivo3mf = async (archivo) => {
+    if (!archivo?.path || !supabase) return;
+    setDescargando3mf(archivo.path);
+    try {
+      const { data: blob, error } = await supabase.storage.from(PRODUCT_3MF_BUCKET).download(archivo.path);
+      if (error) throw error;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = archivo.nombre || "diseno.3mf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error("No se pudo descargar el archivo 3MF", err);
+      alert("No se pudo descargar el archivo 3MF. Revisá tu conexión e intentá de nuevo.");
+    } finally {
+      setDescargando3mf(null);
+    }
+  };
+
+  const tamanoArchivo3mf = (bytes) => {
+    const cantidad = Number(bytes) || 0;
+    return cantidad >= 1024 * 1024 ? `${(cantidad / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(cantidad / 1024))} KB`;
+  };
+
   const aplicarAjusteFoto = async () => {
     if (!form.foto) return;
     setProcesandoAjusteFoto(true);
@@ -2582,15 +2659,21 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
     }));
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (!form.nombre) return;
-    if (editingId) {
-      updateProduct(editingId, form);
-    } else {
-      addProduct({ ...form, fechaCreacion: todayISO() });
+    if (!form.nombre || subiendo3mf) return;
+    const archivoAnterior = archivo3mfOriginal;
+    const archivoNuevo = form.archivo3mf?.path || null;
+    const guardado = editingId
+      ? await updateProduct(editingId, form)
+      : await addProduct({ ...form, fechaCreacion: todayISO() });
+    if (!guardado) return;
+    if (archivoAnterior && archivoAnterior !== archivoNuevo) {
+      const { error } = await supabase.storage.from(PRODUCT_3MF_BUCKET).remove([archivoAnterior]);
+      if (error) console.error("No se pudo quitar el archivo 3MF reemplazado", error);
     }
     setForm(emptyForm);
+    setArchivo3mfOriginal(null);
     setEditingId(null);
     setShowForm(false);
   };
@@ -2602,17 +2685,27 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
       precioUnitario: p.precioUnitario || "",
       notas: p.notas || "",
       foto: p.foto || "",
+      archivo3mf: p.archivo3mf || null,
       categoria: p.categoria || "",
       tiempoImpresionHoras: p.tiempoImpresionHoras || "",
       pesoGramos: p.pesoGramos || "",
       mayoristaTiers: p.mayoristaTiers && p.mayoristaTiers.length ? p.mayoristaTiers : defaultTiers(),
     });
+    setArchivo3mfOriginal(p.archivo3mf?.path || null);
+    setError3mf("");
     setEditingId(p.id);
     setShowForm(true);
   };
 
-  const cancelarForm = () => {
+  const cancelarForm = async () => {
+    const pathActual = form.archivo3mf?.path;
+    if (pathActual && pathActual !== archivo3mfOriginal && supabase) {
+      const { error } = await supabase.storage.from(PRODUCT_3MF_BUCKET).remove([pathActual]);
+      if (error) console.error("No se pudo limpiar el archivo 3MF sin guardar", error);
+    }
     setForm(emptyForm);
+    setArchivo3mfOriginal(null);
+    setError3mf("");
     setEditingId(null);
     setShowForm(false);
   };
@@ -2728,6 +2821,40 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
               </div>
             </div>
           )}
+          <div
+            className={`archivo-3mf-dropzone${arrastrando3mf ? " dragging" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setArrastrando3mf(true); }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastrando3mf(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setArrastrando3mf(false);
+              const archivo = Array.from(e.dataTransfer.files || []).find((item) => item.name.toLowerCase().endsWith(".3mf"));
+              if (archivo) cargarArchivo3mf(archivo);
+              else setError3mf("Soltá acá un archivo .3mf.");
+            }}
+          >
+            <div className="archivo-3mf-heading">
+              <FileText size={20} />
+              <div><strong>Archivo del diseño (.3mf)</strong><span>Queda guardado en este producto para descargarlo cuando lo necesites.</span></div>
+            </div>
+            {form.archivo3mf ? (
+              <div className="archivo-3mf-actual">
+                <div><strong>{form.archivo3mf.nombre}</strong><span>{tamanoArchivo3mf(form.archivo3mf.tamano)}</span></div>
+                <button type="button" className="btn-mini" onClick={() => descargarArchivo3mf(form.archivo3mf)} disabled={descargando3mf === form.archivo3mf.path}>
+                  <Download size={13} /> {descargando3mf === form.archivo3mf.path ? "Descargando…" : "Descargar"}
+                </button>
+                <button type="button" className="btn-mini" onClick={() => setForm((f) => ({ ...f, archivo3mf: null }))}><X size={13} /> Quitar</button>
+              </div>
+            ) : (
+              <label className="btn-mini archivo-3mf-elegir">
+                <FileText size={14} /> {arrastrando3mf ? "Soltá el archivo acá" : subiendo3mf ? "Guardando archivo…" : "Elegir o arrastrar archivo .3mf"}
+                <input type="file" accept=".3mf,model/3mf,application/octet-stream" onChange={(e) => { cargarArchivo3mf(e.target.files?.[0]); e.target.value = ""; }} disabled={subiendo3mf} />
+              </label>
+            )}
+            {error3mf && <p className="archivo-3mf-error" role="alert">{error3mf}</p>}
+            {subiendo3mf && <p className="archivo-3mf-hint">Subiendo el archivo; esperá a que termine antes de guardar el producto.</p>}
+            {!form.archivo3mf && !subiendo3mf && <p className="archivo-3mf-hint">Hasta 50 MB. También podés soltar el archivo sobre este recuadro.</p>}
+          </div>
           <div className="form-row">
             <label>
               Costo (material + tiempo)
@@ -2822,6 +2949,11 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
               <p className="row-title">{p.nombre} {p.categoria && <span className="badge inline-badge tone-teal">{p.categoria}</span>}</p>
               {vendidos > 0 && <p className="row-sub">{vendidos} vendido{vendidos !== 1 ? "s" : ""}</p>}
               {p.notas && <p className="row-notes">{p.notas}</p>}
+              {p.archivo3mf?.path && (
+                <button type="button" className="btn-mini full-width" onClick={() => descargarArchivo3mf(p.archivo3mf)} disabled={descargando3mf === p.archivo3mf.path}>
+                  <Download size={13} /> {descargando3mf === p.archivo3mf.path ? "Descargando 3MF…" : `Descargar 3MF · ${p.archivo3mf.nombre || "archivo"}`}
+                </button>
+              )}
               <p className="cost-line">Costo: <span className="mono">{formatARS(costo)}</span></p>
 
               <div className="price-pills">
@@ -4486,6 +4618,17 @@ const CSS = `
 .foto-lightbox img { max-width: min(92vw, 1200px); max-height: 82vh; object-fit: contain; border-radius: 10px; }
 .foto-lightbox p { color: white; font-size: 13px; margin: 0; }
 .foto-lightbox-close { position: absolute; top: 18px; right: 18px; display: flex; padding: 10px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; background: rgba(0,0,0,.4); color: white; cursor: pointer; }
+.archivo-3mf-dropzone { margin: 12px 0; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; gap: 10px; transition: border-color .15s, background .15s; }
+.archivo-3mf-dropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.archivo-3mf-heading { display: flex; align-items: flex-start; gap: 9px; color: var(--teal); }
+.archivo-3mf-heading div, .archivo-3mf-actual div { display: flex; flex-direction: column; gap: 3px; }
+.archivo-3mf-heading strong, .archivo-3mf-actual strong { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.archivo-3mf-heading span, .archivo-3mf-actual span, .archivo-3mf-hint { font-size: 11px; color: var(--ink-soft); margin: 0; }
+.archivo-3mf-actual { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.archivo-3mf-actual div { flex: 1; min-width: 170px; }
+.archivo-3mf-elegir { display: inline-flex; width: fit-content; position: relative; overflow: hidden; cursor: pointer; }
+.archivo-3mf-elegir input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+.archivo-3mf-error { color: var(--danger); font-size: 12px; margin: 0; }
 @media (max-width: 600px) {
   .foto-uploader { align-items: flex-start; flex-wrap: wrap; }
   .foto-preview, .foto-placeholder { width: 100%; height: auto; aspect-ratio: 4 / 3; }
