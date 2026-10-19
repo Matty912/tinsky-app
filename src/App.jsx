@@ -3308,25 +3308,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
             ))}
             <button type="button" className="btn-secondary" onClick={agregarBandeja}><Plus size={14} /> Agregar otro tipo de bandeja</button>
             <p className="hint">Total: {cantidadBandejas} bandeja(s) · {unidadesTotales} pieza(s) impresas · {peso.toFixed(1)} g · {horasTotales.toFixed(2)} h</p>
-            <div className="sale-unit-config">
-              <p className="hint"><strong>¿Cómo vas a vender esta impresión?</strong></p>
-              <div className="destino-toggle">
-                <button type="button" className={modoVenta === "individual" ? "active" : ""} onClick={() => setModoVenta("individual")}>Por pieza individual</button>
-                <button type="button" className={modoVenta === "grupal" ? "active" : ""} onClick={() => setModoVenta("grupal")}>Por grupo / producto armado</button>
-              </div>
-              {modoVenta === "grupal" && (
-                <label>
-                  Piezas impresas que forman cada producto o grupo
-                  <input type="number" min="1" step="1" value={piezasPorProducto} onChange={(e) => setPiezasPorProducto(e.target.value)} />
-                </label>
-              )}
-              {modoVenta === "grupal" && unidadesVenta === 0 && (
-                <p className="hint" role="alert">Todavía no alcanza para formar un grupo completo. Agregá piezas o bajá la cantidad por grupo.</p>
-              )}
-              {modoVenta === "grupal" && piezasFueraDeGrupo > 0 && unidadesVenta > 0 && (
-                <p className="hint">Salen {unidadesVenta} grupo(s) completos y quedan {piezasFueraDeGrupo} pieza(s) sueltas. El costo total se reparte entre los grupos.</p>
-              )}
-            </div>
+            <p className="hint">El precio que definas abajo puede ser por pieza suelta o por el producto ya armado.</p>
           </AccordionSection>
           <AccordionSection icon={Tags} color="accent" title="Material" subtitle="Filamento y desperdicio" open={open.material} onToggle={() => toggle("material")}>
             <label>
@@ -3402,6 +3384,22 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           </AccordionSection>
 
           <AccordionSection icon={Wallet} color="success" title="Margen de ganancia" subtitle="Envío y comisiones" open={open.margen} onToggle={() => toggle("margen")}>
+            <p className="hint"><strong>¿Qué vas a vender?</strong></p>
+            <div className="destino-toggle">
+              <button type="button" className={modoVenta === "individual" ? "active" : ""} onClick={() => setModoVenta("individual")}>Cada pieza individual</button>
+              <button type="button" className={modoVenta === "grupal" ? "active" : ""} onClick={() => setModoVenta("grupal")}>Producto armado</button>
+            </div>
+            {modoVenta === "grupal" && (
+              <>
+                <label>
+                  Piezas que forman un producto completo
+                  <input type="number" min="1" step="1" value={piezasPorProducto} onChange={(e) => setPiezasPorProducto(e.target.value)} />
+                </label>
+                <p className="hint">El precio de venta será por el producto completo, con todas esas piezas juntas.</p>
+                {unidadesVenta === 0 && <p className="hint" role="alert">Todavía no alcanza para formar un producto completo. Agregá piezas o bajá la cantidad por producto.</p>}
+                {piezasFueraDeGrupo > 0 && unidadesVenta > 0 && <p className="hint">Se forman {unidadesVenta} producto(s) completos y quedan {piezasFueraDeGrupo} pieza(s) sueltas.</p>}
+              </>
+            )}
             <div className="destino-toggle">
               <button type="button" className={modoPrecio === "margen" ? "active" : ""} onClick={() => setModoPrecio("margen")}>
                 Definir por margen %
@@ -3418,8 +3416,8 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
               </label>
             ) : (
               <label>
-                Precio final de venta (ARS)
-                <input type="number" min="0" value={precioFinalManual} onChange={(e) => setPrecioFinalManual(e.target.value)} placeholder="Ej: 8000" />
+                {modoVenta === "grupal" ? "Precio de venta del producto completo (ARS)" : "Precio de venta por pieza (ARS)"}
+                <input type="number" min="0" value={precioFinalManual} onChange={(e) => setPrecioFinalManual(e.target.value)} placeholder={modoVenta === "grupal" ? "Ej: 15000 por producto armado" : "Ej: 5000 por pieza"} />
               </label>
             )}
             {modoPrecio === "precio" && precioFinalNum > 0 && (
@@ -3439,7 +3437,7 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
           <h3>Resultado del cálculo</h3>
           <p className="total-label">Costo total de producción · {cantidadBandejas} bandeja(s) / {unidadesTotales} piezas</p>
           <p className="total-value mono">{formatARS(subtotal)}</p>
-          <div className="breakdown-row"><span>{modoVenta === "grupal" ? "Costo por producto / grupo" : "Costo por pieza"}</span><span className="mono">{formatARS(costoUnitario)}</span></div>
+          <div className="breakdown-row"><span>{modoVenta === "grupal" ? "Costo por producto armado" : "Costo por pieza"}</span><span className="mono">{formatARS(costoUnitario)}</span></div>
 
           <div className="pct-bars">
             <div className="pct-row"><span>Material</span><div className="pct-track"><div className="pct-fill accent" style={{ width: `${pct(costoMaterial)}%` }} /></div><span className="mono">{pct(costoMaterial)}%</span></div>
@@ -3458,11 +3456,13 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
 
           <div className="price-levels">
             <div className="level rec">
-              <span>{modoPrecio === "precio" ? "Tu precio por unidad de venta" : "Precio sugerido por " + (modoVenta === "grupal" ? "producto / grupo" : "pieza")}</span>
+              <span>{modoPrecio === "precio"
+                ? (modoVenta === "grupal" ? "Tu precio por producto armado" : "Tu precio por pieza")
+                : (modoVenta === "grupal" ? "Precio sugerido por producto armado" : "Precio sugerido por pieza")}</span>
               <strong className="mono">{formatARS(recomendado)}</strong>
             </div>
             <div className="level full">
-              <span>Precio completo del lote · {unidadesVenta} {modoVenta === "grupal" ? "grupo(s)" : "pieza(s)"}</span>
+              <span>Precio total del lote · {unidadesVenta} {modoVenta === "grupal" ? (unidadesVenta === 1 ? "producto armado" : "productos armados") : (unidadesVenta === 1 ? "pieza" : "piezas")}</span>
               <strong className="mono">{formatARS(recomendado * unidadesVenta)}</strong>
             </div>
           </div>
