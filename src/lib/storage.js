@@ -163,7 +163,7 @@ export const storage = {
         if (local.baseCloudAt !== (cloud?.updated_at || null)) {
           local.conflict = true;
           await putRecord(local);
-          publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.");
+          publish("conflict", "Hay cambios en otro dispositivo. Elegí qué copia conservar.", record.key);
           return local.value;
         }
         await uploadRecord(local, session, cloud);
