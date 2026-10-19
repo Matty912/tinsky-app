@@ -411,6 +411,7 @@ export default function App() {
   const [theme, setTheme] = useState("dark");
   const [authOk, setAuthOk] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(storage.getSyncStatus());
 
   useEffect(() => {
     if (!supabase) {
@@ -421,23 +422,65 @@ export default function App() {
     supabase.auth.getSession().then(({ data, error }) => {
       if (!alive) return;
       if (error) console.error("No se pudo recuperar la sesión", error);
-      setAuthOk(Boolean(data?.session));
+      if (data?.session?.user?.id) storage.rememberOfflineUser(data.session.user.id);
+      const offlineUser = !data?.session && !navigator.onLine ? storage.getOfflineUserId() : null;
+      setAuthOk(Boolean(data?.session || offlineUser));
       setAuthReady(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user?.id) storage.rememberOfflineUser(session.user.id);
       if (!session) {
         setLoaded(false);
         setData(defaultData);
         setLoadError(null);
         setSaveError(null);
       }
-      setAuthOk(Boolean(session));
+      setAuthOk(Boolean(session) || (!navigator.onLine && Boolean(storage.getOfflineUserId())));
     });
     return () => {
       alive = false;
       listener.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    return storage.subscribeSyncStatus(setSyncStatus);
+  }, []);
+
+  useEffect(() => {
+    if (!authOk) return;
+    const handleOnline = () => storage.syncPending();
+    const handleOffline = () => setSyncStatus({ state: "offline", message: "Sin conexión. Los cambios se guardan en este dispositivo." });
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    if (!navigator.onLine) handleOffline();
+    else storage.syncPending();
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [authOk]);
+
+  useEffect(() => {
+    if (!authOk || !loaded) return;
+    let alive = true;
+    const refreshFromCloud = async () => {
+      if (!navigator.onLine) return;
+      try {
+        const value = await storage.getItem(STORAGE_KEY);
+        if (alive && value) setData({ ...defaultData, ...JSON.parse(value) });
+      } catch (error) {
+        console.warn("No se pudo revisar la sincronización con la nube.", error);
+      }
+    };
+    const interval = window.setInterval(refreshFromCloud, 60000);
+    window.addEventListener("online", refreshFromCloud);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      window.removeEventListener("online", refreshFromCloud);
+    };
+  }, [authOk, loaded]);
 
   useEffect(() => {
     if (!authOk) return;
@@ -683,6 +726,7 @@ export default function App() {
             <button
               className="theme-toggle"
               onClick={async () => {
+                storage.clearOfflineUser();
                 await supabase.auth.signOut();
               }}
               title="Cerrar sesión"
@@ -699,6 +743,19 @@ export default function App() {
               {new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
             </div>
           </header>
+
+          {syncStatus.state !== "synced" && loaded && (
+            <div className={`sync-status sync-${syncStatus.state}`} role="status">
+              <span>{syncStatus.state === "offline" ? "Sin conexión" : syncStatus.state === "syncing" ? "Sincronizando…" : syncStatus.state === "conflict" ? "Revisar sincronización" : "Cambios pendientes de sincronizar"}</span>
+              <span>{syncStatus.message}</span>
+              {syncStatus.state === "conflict" && syncStatus.key && (
+                <div className="sync-actions">
+                  <button type="button" onClick={() => storage.resolveConflict(syncStatus.key, "local")}>Conservar este dispositivo</button>
+                  <button type="button" onClick={() => storage.resolveConflict(syncStatus.key, "cloud")}>Usar copia de la nube</button>
+                </div>
+              )}
+            </div>
+          )}
 
           {saveError && (
             <div className="save-error-banner">
@@ -5374,6 +5431,31 @@ const CSS = `
 }
 .login-card .btn-accent { width: 100%; margin-top: 6px; }
 .login-error { display: flex; align-items: center; gap: 5px; color: var(--danger); font-size: 12px; margin: 0; }
+
+.sync-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  background: var(--teal-soft);
+  color: var(--ink);
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.sync-status > span:first-child { font-weight: 700; }
+.sync-offline, .sync-pending, .sync-conflict { background: var(--warning-soft); }
+.sync-conflict { background: var(--danger-soft); }
+.sync-actions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.sync-actions button {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
 
 .save-error-banner {
   display: flex;
