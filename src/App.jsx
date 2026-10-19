@@ -2697,6 +2697,24 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
     setShowForm(true);
   };
 
+  const quitarArchivo3mf = async () => {
+    const pathActual = form.archivo3mf?.path;
+    if (pathActual && pathActual !== archivo3mfOriginal && supabase) {
+      const { error } = await supabase.storage.from(PRODUCT_3MF_BUCKET).remove([pathActual]);
+      if (error) console.error("No se pudo limpiar el archivo 3MF quitado", error);
+    }
+    setForm((f) => ({ ...f, archivo3mf: null }));
+    setError3mf("");
+  };
+
+  const eliminarProductoConArchivo = async (producto) => {
+    const guardado = await deleteProduct(producto.id);
+    if (guardado && producto.archivo3mf?.path && supabase) {
+      const { error } = await supabase.storage.from(PRODUCT_3MF_BUCKET).remove([producto.archivo3mf.path]);
+      if (error) console.error("No se pudo borrar el archivo 3MF del producto", error);
+    }
+  };
+
   const cancelarForm = async () => {
     const pathActual = form.archivo3mf?.path;
     if (pathActual && pathActual !== archivo3mfOriginal && supabase) {
@@ -2837,18 +2855,19 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
               <FileText size={20} />
               <div><strong>Archivo del diseño (.3mf)</strong><span>Queda guardado en este producto para descargarlo cuando lo necesites.</span></div>
             </div>
-            {form.archivo3mf ? (
+            {form.archivo3mf && (
               <div className="archivo-3mf-actual">
                 <div><strong>{form.archivo3mf.nombre}</strong><span>{tamanoArchivo3mf(form.archivo3mf.tamano)}</span></div>
                 <button type="button" className="btn-mini" onClick={() => descargarArchivo3mf(form.archivo3mf)} disabled={descargando3mf === form.archivo3mf.path}>
                   <Download size={13} /> {descargando3mf === form.archivo3mf.path ? "Descargando…" : "Descargar"}
                 </button>
-                <button type="button" className="btn-mini" onClick={() => setForm((f) => ({ ...f, archivo3mf: null }))}><X size={13} /> Quitar</button>
+                <button type="button" className="btn-mini" onClick={quitarArchivo3mf}><X size={13} /> Quitar</button>
               </div>
-            ) : (
+            )}
+            {!subiendo3mf && (
               <label className="btn-mini archivo-3mf-elegir">
-                <FileText size={14} /> {arrastrando3mf ? "Soltá el archivo acá" : subiendo3mf ? "Guardando archivo…" : "Elegir o arrastrar archivo .3mf"}
-                <input type="file" accept=".3mf,model/3mf,application/octet-stream" onChange={(e) => { cargarArchivo3mf(e.target.files?.[0]); e.target.value = ""; }} disabled={subiendo3mf} />
+                <FileText size={14} /> {arrastrando3mf ? "Soltá el archivo acá" : form.archivo3mf ? "Reemplazar archivo .3mf" : "Elegir archivo .3mf"}
+                <input type="file" accept=".3mf,model/3mf,application/octet-stream" onChange={(e) => { cargarArchivo3mf(e.target.files?.[0]); e.target.value = ""; }} />
               </label>
             )}
             {error3mf && <p className="archivo-3mf-error" role="alert">{error3mf}</p>}
@@ -2918,7 +2937,7 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
           </label>
           <div className="form-actions">
             {editingId && <button type="button" className="btn-secondary" onClick={cancelarForm}>Cancelar</button>}
-            <button type="submit" className="btn-accent">{editingId ? "Guardar cambios" : "Guardar producto"}</button>
+            <button type="submit" className="btn-accent" disabled={subiendo3mf}>{editingId ? "Guardar cambios" : "Guardar producto"}</button>
           </div>
         </form>
       )}
@@ -2937,7 +2956,7 @@ function Productos({ data, addProduct, updateProduct, deleteProduct, addVenta })
               {esTop && <span className="top-badge">🔥 Top ventas</span>}
               <div className="product-card-actions">
                 <button className="icon-btn" onClick={() => empezarEdicion(p)}><Pencil size={14} /></button>
-                <button className="icon-btn" onClick={() => deleteProduct(p.id)}><Trash2 size={14} /></button>
+                <button className="icon-btn" onClick={() => eliminarProductoConArchivo(p)}><Trash2 size={14} /></button>
               </div>
               {p.foto ? (
                 <button type="button" className="product-photo-button" onClick={() => setFotoAmpliada({ src: p.foto, nombre: p.nombre })} aria-label={`Ver foto de ${p.nombre}`}>
