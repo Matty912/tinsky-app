@@ -1493,7 +1493,7 @@ function PlanificadorFeria({ data }) {
                 <div key={item.nombre} className="row-card">
                   <div className="row-main">
                     <p className="row-title">{item.nombre} <span className="dim">×{item.cantidad}</span></p>
-                    <p className="row-sub">{item.horas.toFixed(1)}h de impresión{item.gramos > 0 ? ` · ${item.gramos}g` : ""}{!item.tieneVentas ? " · producto nuevo" : ""}</p>
+                    <p className="row-sub">{item.horas.toFixed(1)}h de impresión{item.gramos > 0 ? ` · ${item.gramos}g` : ""}{item.tiempoDesdePedido ? " · horas recuperadas de pedidos" : ""}{item.pesoDesdePedido ? " · peso recuperado de pedidos" : ""}{!item.tieneVentas ? " · producto nuevo" : ""}</p>
                   </div>
                   <div className="row-side">
                     <p className="mono price">{formatARS(item.ganancia)}</p>
@@ -3342,6 +3342,8 @@ function Calculadora({ stock, purchases, addProduct, addOrder, calc, updateCalc 
       nombre: nombreProducto || "Producto sin nombre",
       costo: Math.round(costoUnitario),
       precioUnitario: Math.round(recomendado),
+      tiempoImpresionHoras: Math.round(horasPorVenta * 100) / 100,
+      pesoGramos: Math.round(gramosPorVenta * 100) / 100,
       notas: "Generado desde la calculadora",
       fechaCreacion: todayISO(),
       mayoristaTiers: defaultTiers(),
