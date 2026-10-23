@@ -13,7 +13,7 @@ import {
   DollarSign, ArrowUpDown, FileText, Lightbulb, TrendingUp, ExternalLink,
   Trophy, Share2, Square, RectangleVertical, BarChart3, MessageCircle,
   Send, Sparkles, AlertCircle, PartyPopper, CalendarDays, Wand2,
-  Palette, Frame, Tag, Activity, Rocket, LogOut, Lock
+  Palette, Frame, Tag, Rocket, LogOut, Lock
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from "recharts";
 import LampDesigner from "./LampDesigner";
@@ -312,6 +312,7 @@ const defaultData = {
   stock: [],
   products: [],
   purchases: [],
+  ideas: [],
   ventas: [],
   presupuestos: [],
   consumos: [],
@@ -603,6 +604,26 @@ export default function App() {
   const addPurchase = (item) => persist({ ...data, purchases: [...data.purchases, { id: uid(), fecha: item.fecha || todayISO(), ...item }] });
   const updatePurchase = (id, patch) => persist({ ...data, purchases: data.purchases.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
   const deletePurchase = (id) => persist({ ...data, purchases: data.purchases.filter((p) => p.id !== id) });
+  const addStockFromPurchase = (purchaseId, item) => {
+    const purchase = data.purchases.find((p) => p.id === purchaseId);
+    if (!purchase || purchase.stockId) return Promise.resolve(false);
+    const stockId = uid();
+    return persist({
+      ...data,
+      stock: [...data.stock, { id: stockId, ...item }],
+      purchases: data.purchases.map((p) => p.id === purchaseId ? { ...p, stockId } : p),
+    });
+  };
+  const addIdea = (idea) => {
+    const ideas = data.ideas || [];
+    if (ideas.some((saved) => saved.id === idea.id)) return Promise.resolve(false);
+    return persist({ ...data, ideas: [...ideas, { ...idea, nota: "", referencia: "", guardadaEn: todayISO() }] });
+  };
+  const updateIdea = (id, patch) => persist({
+    ...data,
+    ideas: (data.ideas || []).map((idea) => idea.id === id ? { ...idea, ...patch } : idea),
+  });
+  const deleteIdea = (id) => persist({ ...data, ideas: (data.ideas || []).filter((idea) => idea.id !== id) });
 
   const addVenta = (item) => persist({ ...data, ventas: [...data.ventas, { id: uid(), fecha: item.fecha || todayISO(), ...item, hora: nowHHMM() }] });
   const registrarCobroPedido = (id, patch, venta) => persist({
@@ -647,6 +668,41 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const createProductFromIdea = (idea) => {
+    const productId = uid();
+    const notas = [
+      `Idea: ${idea.titulo}`,
+      idea.nota,
+      idea.referencia ? `Diseño de referencia: ${idea.referencia}` : "",
+    ].filter(Boolean).join("\n");
+    persist({
+      ...data,
+      products: [...data.products, {
+        id: productId, nombre: idea.titulo, costo: "", precioUnitario: "", notas,
+        foto: "", archivo3mf: null, categoria: idea.tags?.[0] || "Idea",
+        tiempoImpresionHoras: "", pesoGramos: "", mayoristaTiers: defaultTiers(),
+      }],
+      ideas: (data.ideas || []).map((saved) => saved.id === idea.id
+        ? { ...saved, nota: idea.nota, referencia: idea.referencia, productId }
+        : saved),
+    });
+    setTab("productos");
+  };
+  const calculateIdea = (idea) => {
+    persist({
+      ...data,
+      ideas: (data.ideas || []).map((saved) => saved.id === idea.id
+        ? { ...saved, nota: idea.nota, referencia: idea.referencia }
+        : saved),
+      calculadoraState: {
+        ...(data.calculadoraState || {}),
+        destino: "producto",
+        nombreProducto: idea.titulo,
+      },
+    });
+    setTab("calculadora");
+  };
+
   const TABS = [
     { k: "resumen", label: "Resumen", icon: LayoutDashboard },
     { k: "asistente", label: "Asistente", icon: MessageCircle },
@@ -663,8 +719,7 @@ export default function App() {
     { k: "disenador3d", label: "Diseñador 3D", icon: Wand2 },
     { k: "ideas", label: "Ideas", icon: Lightbulb },
     { k: "posts", label: "Generador de posts", icon: Share2 },
-    { k: "heatmap", label: "Actividad", icon: Activity },
-    { k: "ejecutivo", label: "Dashboard Ejecutivo", icon: Rocket },
+    { k: "ejecutivo", label: "Control diario", icon: Rocket },
   ];
 
   if (!authReady) {
@@ -813,17 +868,15 @@ export default function App() {
             ) : tab === "presupuestos" ? (
               <Presupuestos data={data} addPresupuesto={addPresupuesto} deletePresupuesto={deletePresupuesto} aceptarPresupuesto={aceptarPresupuesto} />
             ) : tab === "compras" ? (
-              <Compras data={data} addPurchase={addPurchase} deletePurchase={deletePurchase} />
+              <Compras data={data} addPurchase={addPurchase} deletePurchase={deletePurchase} addStockFromPurchase={addStockFromPurchase} />
             ) : tab === "disenador3d" ? (
               <LampDesigner settings={data.config?.lampDesigner} onSettingsChange={(lampDesigner) => updateConfig({ lampDesigner })} addProduct={addProduct} />
             ) : tab === "ideas" ? (
-              <Ideas />
+              <Ideas ideas={data.ideas || []} onSave={addIdea} onUpdate={updateIdea} onDelete={deleteIdea} onCreateProduct={createProductFromIdea} onCalculate={calculateIdea} onNavigate={setTab} />
             ) : tab === "posts" ? (
               <PostGenerator products={data.products} />
-            ) : tab === "heatmap" ? (
-              <HeatmapActividad data={data} />
             ) : tab === "ejecutivo" ? (
-              <DashboardEjecutivo data={data} updateConfig={updateConfig} />
+              <DashboardEjecutivo data={data} updateConfig={updateConfig} onNavigate={setTab} />
             ) : (
               <Calculadora stock={data.stock} purchases={data.purchases} addProduct={addProduct} addOrder={addOrder} calc={data.calculadoraState} updateCalc={updateCalculadoraState} />
             )}
@@ -1196,6 +1249,7 @@ function Estadisticas({ data }) {
           )}
         </div>
       </div>
+      <HeatmapActividad data={data} />
     </div>
   );
 }
@@ -1650,18 +1704,10 @@ function HeatmapActividad({ data }) {
 }
 
 // ============================= DASHBOARD EJECUTIVO =============================
-function DashboardEjecutivo({ data, updateConfig }) {
+function DashboardEjecutivo({ data, updateConfig, onNavigate }) {
   const hoy = new Date();
   const tDia = A.totales(A.ventasDelDia(data));
-  const tMes = A.totales(A.ventasDelMes(data));
-  const tAnio = A.totales(A.ventasDelAnio(data));
-  const alertasStock = A.stockBajoMinimo(data);
-  const proxima = A.proximaEntrega(data);
-  const atrasados = A.pedidosAtrasados(data);
-  const pend = A.pendientesProduccion(data);
   const recientes = A.ventasRecientes(data, 6);
-  const topProductos = A.top10(data, "ingreso").slice(0, 5);
-
   const multiplicador = (data.config && data.config.multiplicadorValorNegocio) || 2.5;
   const valor = A.valorNegocio(data, multiplicador);
   const evolucion = A.evolucionValorNegocio(data, multiplicador);
@@ -1669,73 +1715,19 @@ function DashboardEjecutivo({ data, updateConfig }) {
   return (
     <div className="section">
       <div className="section-head">
-        <h2>Dashboard Ejecutivo</h2>
+        <h2>Control diario</h2>
         <p className="current-month-label">{hoy.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
       </div>
-
       <div className="ejecutivo-hero">
-        <div className="hero-cell">
-          <span>Ganancia hoy</span>
-          <strong className="mono">{formatARS(tDia.ganancia)}</strong>
-        </div>
-        <div className="hero-cell main">
-          <span>Ganancia del mes</span>
-          <strong className="mono">{formatARS(tMes.ganancia)}</strong>
-        </div>
-        <div className="hero-cell">
-          <span>Ganancia del año</span>
-          <strong className="mono">{formatARS(tAnio.ganancia)}</strong>
-        </div>
+        <div className="hero-cell"><span>Ingresos de hoy</span><strong className="mono">{formatARS(tDia.ingreso)}</strong></div>
+        <div className="hero-cell main"><span>Ganancia de hoy</span><strong className="mono">{formatARS(tDia.ganancia)}</strong></div>
+        <div className="hero-cell"><span>Costo de ventas de hoy</span><strong className="mono">{formatARS(tDia.costo)}</strong></div>
       </div>
-
-      <div className="ejecutivo-grid">
-        <div className="panel">
-          <h3>Estado operativo</h3>
-          <div className="produccion-grid">
-            <div className="prod-cell">
-              <span>Pedidos activos</span>
-              <strong>{pend.cantidadPedidos}</strong>
-            </div>
-            <div className={"prod-cell" + (atrasados.length ? " danger" : "")}>
-              <span>Pedidos atrasados</span>
-              <strong>{atrasados.length}</strong>
-            </div>
-            <div className="prod-cell">
-              <span>Próxima entrega</span>
-              <strong>{proxima ? proxima.fechaEntrega : "—"}</strong>
-            </div>
-            <div className={"prod-cell" + (alertasStock.length ? " danger" : "")}>
-              <span>Stock crítico</span>
-              <strong>{alertasStock.length}</strong>
-            </div>
-            <div className="prod-cell">
-              <span>Horas pendientes</span>
-              <strong>{pend.horas > 0 ? `${pend.horas}h` : "—"}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel">
-          <h3>Top productos</h3>
-          {topProductos.length === 0 ? (
-            <p className="empty-note">Todavía no hay ventas.</p>
-          ) : (
-            <ol className="ranking-list">
-              {topProductos.map((p, idx) => (
-                <li key={p.nombre} className="ranking-row">
-                  <span className="ranking-pos">{idx + 1}</span>
-                  <div className="ranking-info">
-                    <p className="ranking-name">{p.nombre}</p>
-                    <p className="ranking-units">{p.unidades} unidades</p>
-                  </div>
-                  <span className="ranking-total mono">{formatARS(p.ingreso)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
+      <div className="form-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        <button type="button" className="btn-accent" onClick={() => onNavigate("productos")}>Registrar venta</button>
+        <button type="button" className="btn-secondary" onClick={() => onNavigate("pedidos")}>Ver pedidos</button>
+        <button type="button" className="btn-secondary" onClick={() => onNavigate("stock")}>Revisar stock</button>
       </div>
-
       <div className="panel">
         <h3>Ventas recientes</h3>
         {recientes.length === 0 ? (
@@ -1748,43 +1740,28 @@ function DashboardEjecutivo({ data, updateConfig }) {
                   <p className="row-title">{v.nombre} {Number(v.cantidad) > 0 && <span className="dim">×{v.cantidad}</span>}</p>
                   <p className="row-sub">{v.fecha}{v.hora ? ` · ${v.hora}` : ""} · {v.medioPago}</p>
                 </div>
-                <div className="row-side">
-                  <p className="mono price">{formatARS(v.monto)}</p>
-                </div>
+                <div className="row-side"><p className="mono price">{formatARS(v.monto)}</p></div>
               </div>
             ))}
           </div>
         )}
       </div>
-
       <div className="panel valor-negocio-panel">
         <div className="section-head" style={{ marginBottom: 10 }}>
           <h3><Rocket size={16} /> Valor estimado del negocio</h3>
           <label className="multiplicador-label">
             Multiplicador
-            <input
-              type="number"
-              min="0"
-              step="0.1"
-              value={multiplicador}
-              onChange={(e) => updateConfig({ multiplicadorValorNegocio: Number(e.target.value) })}
-            />
+            <input type="number" min="0" step="0.1" value={multiplicador} onChange={(e) => updateConfig({ multiplicadorValorNegocio: Number(e.target.value) })} />
           </label>
         </div>
         <p className="valor-negocio-total mono">{formatARS(valor.valorEstimado)}</p>
-        <p className="hint">
-          💡 Estimación simple: ganancia del año actual × el multiplicador que definas. No es una valuación financiera real,
-          es sólo una referencia orientativa que vos podés ajustar.
-        </p>
+        <p className="hint">💡 Estimación orientativa: ganancia del año actual × el multiplicador que definas. No es una valuación financiera real.</p>
         <div className="mini-stats-grid" style={{ marginTop: 14 }}>
-          <MiniStat label="Facturación anual" value={formatARS(valor.facturacionAnual)} />
-          <MiniStat label="Ganancia anual" value={formatARS(valor.gananciaAnual)} />
           <MiniStat label="Cantidad de pedidos" value={valor.cantidadPedidos} />
           <MiniStat label="Cantidad de ventas" value={valor.cantidadVentas} />
           <MiniStat label="Productos activos" value={valor.cantidadProductos} />
           <MiniStat label="Clientes distintos" value={valor.clientesDistintos} />
         </div>
-
         {evolucion.length > 1 && (
           <div style={{ marginTop: 18, width: "100%", height: 200 }}>
             <ResponsiveContainer>
@@ -1802,7 +1779,6 @@ function DashboardEjecutivo({ data, updateConfig }) {
     </div>
   );
 }
-
 // ============================= PEDIDOS =============================
 function Pedidos({ data, addOrder, updateOrder, deleteOrder, registrarCobroPedido }) {
   const emptyForm = { cliente: "", producto: "", cantidad: 1, precioTotal: "", fechaEntrega: "", notas: "", pesoEstimado: "", tiempoEstimado: "", costoEstimado: "" };
@@ -2150,9 +2126,13 @@ function PrediccionStock({ data }) {
 
 
 // ============================= COMPRAS =============================
-function Compras({ data, addPurchase, deletePurchase }) {
+function Compras({ data, addPurchase, deletePurchase, addStockFromPurchase }) {
   const [form, setForm] = useState({ fecha: todayISO(), tipo: "Filamento", descripcion: "", proveedor: "", monto: "", cantidad: 1, notas: "" });
   const [showForm, setShowForm] = useState(false);
+  const [stockPurchaseId, setStockPurchaseId] = useState(null);
+  const [stockDraft, setStockDraft] = useState({ material: "PLA", color: "", marca: "", gramosPorUnidad: 1000, alertaMinimo: 150 });
+  const [savingStock, setSavingStock] = useState(false);
+  const [stockError, setStockError] = useState("");
 
   const submit = (e) => {
     e.preventDefault();
@@ -2162,99 +2142,116 @@ function Compras({ data, addPurchase, deletePurchase }) {
     setShowForm(false);
   };
 
+  const abrirStock = (purchase) => {
+    setStockPurchaseId(purchase.id);
+    setStockError("");
+    setStockDraft({ material: "PLA", color: "", marca: "", gramosPorUnidad: 1000, alertaMinimo: 150 });
+  };
+
+  const guardarEnStock = async (event, purchase) => {
+    event.preventDefault();
+    const cantidad = Math.max(1, Math.floor(Number(purchase.cantidad) || 1));
+    const gramosPorUnidad = Math.max(1, Number(stockDraft.gramosPorUnidad) || 0);
+    const pesoTotal = cantidad * gramosPorUnidad;
+    const precioKg = Number(purchase.monto) > 0 ? Number(purchase.monto) * 1000 / pesoTotal : 0;
+    setSavingStock(true);
+    setStockError("");
+    try {
+      const saved = await addStockFromPurchase(purchase.id, {
+        material: stockDraft.material, color: stockDraft.color.trim(), marca: stockDraft.marca.trim(),
+        pesoInicial: pesoTotal, pesoRestante: pesoTotal, precioKg,
+        alertaMinimo: Math.max(0, Number(stockDraft.alertaMinimo) || 0),
+      });
+      if (saved === false) setStockError("No se pudo vincular esta compra. Revisá si ya fue cargada en Stock.");
+      else setStockPurchaseId(null);
+    } catch (error) {
+      setStockError(error.message || "No se pudo agregar el filamento a Stock.");
+    } finally {
+      setSavingStock(false);
+    }
+  };
+
   const sorted = [...data.purchases].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
   const mesActual = new Date().toISOString().slice(0, 7);
-  const gastadoMes = data.purchases
-    .filter((p) => (p.fecha || "").slice(0, 7) === mesActual)
+  const gastadoMes = data.purchases.filter((p) => (p.fecha || "").slice(0, 7) === mesActual)
     .reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
 
   return (
     <div className="section">
       <div className="section-head">
         <h2>Compras e insumos</h2>
-        <button className="btn-accent" onClick={() => setShowForm((s) => !s)}>
-          <Plus size={16} /> Nueva compra
-        </button>
+        <button className="btn-accent" onClick={() => setShowForm((s) => !s)}><Plus size={16} /> Nueva compra</button>
       </div>
-
       <div className="cards-grid" style={{ marginBottom: 16 }}>
         <StatCard label="Gastado este mes" value={formatARS(gastadoMes)} icon={ShoppingCart} tone="danger" mono />
       </div>
-
       {showForm && (
         <form className="form-card" onSubmit={submit}>
           <div className="form-row">
-            <label>
-              Fecha
-              <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
-            </label>
-            <label>
-              Tipo
-              <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-                {TIPOS_COMPRA.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
+            <label>Fecha<input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></label>
+            <label>Tipo<select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>{TIPOS_COMPRA.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
           </div>
           <div className="form-row">
-            <label>
-              Descripción
-              <input value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Ej: Filamento PETG naranja 1kg" required />
-            </label>
-            <label>
-              Proveedor
-              <input value={form.proveedor} onChange={(e) => setForm({ ...form, proveedor: e.target.value })} placeholder="Opcional" />
-            </label>
-            <label>
-              Monto total (ARS)
-              <input type="number" min="0" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} />
-            </label>
-            <label>
-              Cantidad de unidades
-              <input type="number" min="1" value={form.cantidad} onChange={(e) => setForm({ ...form, cantidad: e.target.value })} placeholder="Ej: 5" />
-            </label>
+            <label>Descripción<input value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Ej: Filamento PETG naranja 1kg" required /></label>
+            <label>Proveedor<input value={form.proveedor} onChange={(e) => setForm({ ...form, proveedor: e.target.value })} placeholder="Opcional" /></label>
+            <label>Monto total (ARS)<input type="number" min="0" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} /></label>
+            <label>Cantidad de unidades<input type="number" min="1" value={form.cantidad} onChange={(e) => setForm({ ...form, cantidad: e.target.value })} placeholder="Ej: 5" /></label>
           </div>
-          {Number(form.cantidad) > 1 && Number(form.monto) > 0 && (
-            <p className="hint">
-              💡 Eso da {formatARS(Number(form.monto) / Number(form.cantidad))} por unidad — se va a poder elegir así de precisa en la Calculadora.
-            </p>
-          )}
-          <label className="full">
-            Notas
-            <input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
-          </label>
-          <div className="form-actions">
-            <button type="submit" className="btn-accent">Guardar compra</button>
-          </div>
+          {Number(form.cantidad) > 1 && Number(form.monto) > 0 && <p className="hint">💡 Eso da {formatARS(Number(form.monto) / Number(form.cantidad))} por unidad — se va a poder elegir así de precisa en la Calculadora.</p>}
+          <label className="full">Notas<input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} /></label>
+          <div className="form-actions"><button type="submit" className="btn-accent">Guardar compra</button></div>
         </form>
       )}
-
       <div className="list">
         {sorted.length === 0 && <p className="empty-note">Todavía no cargaste compras.</p>}
         {sorted.map((p) => {
-          const cant = Number(p.cantidad) || 1;
+          const cant = Math.max(1, Math.floor(Number(p.cantidad) || 1));
           const unitario = cant > 1 ? Number(p.monto) / cant : null;
+          const gramosTotal = cant * Math.max(1, Number(stockDraft.gramosPorUnidad) || 0);
+          const precioKgEstimado = Number(p.monto) > 0 ? Number(p.monto) * 1000 / gramosTotal : 0;
           return (
-          <div key={p.id} className="row-card">
-            <div className="row-main">
-              <p className="row-title">{p.descripcion} <span className={`badge tone-teal inline-badge`}>{p.tipo}</span></p>
-              <p className="row-sub">
-                {p.fecha} {p.proveedor ? `· ${p.proveedor}` : ""}
-                {unitario !== null && ` · ${cant} unidades · ${formatARS(unitario)} c/u`}
-              </p>
-              {p.notas && <p className="row-notes">{p.notas}</p>}
-            </div>
-            <div className="row-side">
-              <p className="mono price">{formatARS(p.monto)}</p>
-              <button className="icon-btn" onClick={() => deletePurchase(p.id)}><Trash2 size={14} /></button>
-            </div>
-          </div>
+            <React.Fragment key={p.id}>
+              <div className="row-card">
+                <div className="row-main">
+                  <p className="row-title">{p.descripcion} <span className="badge tone-teal inline-badge">{p.tipo}</span></p>
+                  <p className="row-sub">{p.fecha} {p.proveedor ? `· ${p.proveedor}` : ""}{unitario !== null && ` · ${cant} unidades · ${formatARS(unitario)} c/u`}</p>
+                  {p.notas && <p className="row-notes">{p.notas}</p>}
+                </div>
+                <div className="row-side">
+                  <p className="mono price">{formatARS(p.monto)}</p>
+                  {p.tipo === "Filamento" && !p.stockId && <button type="button" className="btn-mini" onClick={() => abrirStock(p)}>Agregar a Stock</button>}
+                  {p.stockId && <span className="badge tone-teal inline-badge">Cargado en Stock</span>}
+                  <button className="icon-btn" onClick={() => deletePurchase(p.id)} aria-label="Eliminar compra"><Trash2 size={14} /></button>
+                </div>
+              </div>
+              {stockPurchaseId === p.id && (
+                <form className="form-card" style={{ marginTop: 4 }} onSubmit={(event) => guardarEnStock(event, p)}>
+                  <h3>Agregar filamento al Stock</h3>
+                  <p className="hint">Se va a crear una sola entrada con el peso total de {cant} rollo{cant !== 1 ? "s" : ""}. Podés ajustar el peso por rollo.</p>
+                  <div className="form-row">
+                    <label>Material<select value={stockDraft.material} onChange={(e) => setStockDraft({ ...stockDraft, material: e.target.value })}>{MATERIALES.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+                    <label>Color<input value={stockDraft.color} onChange={(e) => setStockDraft({ ...stockDraft, color: e.target.value })} placeholder="Ej: Naranja" required /></label>
+                    <label>Marca<input value={stockDraft.marca} onChange={(e) => setStockDraft({ ...stockDraft, marca: e.target.value })} placeholder="Ej: Grilon" /></label>
+                  </div>
+                  <div className="form-row">
+                    <label>Peso por rollo (g)<input type="number" min="1" value={stockDraft.gramosPorUnidad} onChange={(e) => setStockDraft({ ...stockDraft, gramosPorUnidad: e.target.value })} required /></label>
+                    <label>Alerta mínima (g)<input type="number" min="0" value={stockDraft.alertaMinimo} onChange={(e) => setStockDraft({ ...stockDraft, alertaMinimo: e.target.value })} /></label>
+                  </div>
+                  <p className="hint">Total: {gramosTotal} g · Costo estimado: {formatARS(precioKgEstimado)}/kg</p>
+                  {stockError && <p className="login-error">{stockError}</p>}
+                  <div className="form-actions" style={{ gap: 8 }}>
+                    <button type="button" className="btn-secondary" onClick={() => setStockPurchaseId(null)} disabled={savingStock}>Cancelar</button>
+                    <button type="submit" className="btn-accent" disabled={savingStock || !stockDraft.color.trim()}>{savingStock ? "Guardando…" : "Agregar al Stock"}</button>
+                  </div>
+                </form>
+              )}
+            </React.Fragment>
           );
         })}
       </div>
     </div>
   );
 }
-
 // ============================= VENTAS =============================
 function etiquetaDia(fechaKey) {
   const hoy = todayISO();
@@ -3675,50 +3672,72 @@ function enlacesBusqueda(query) {
   ];
 }
 
-function Ideas() {
+function IdeaFavorita({ idea, onUpdate, onDelete, onCreateProduct, onCalculate, onNavigate }) {
+  const [nota, setNota] = useState(idea.nota || "");
+  const [referencia, setReferencia] = useState(idea.referencia || "");
+  const [guardado, setGuardado] = useState(false);
+  const guardarNotas = async () => {
+    const saved = await onUpdate(idea.id, { nota, referencia });
+    setGuardado(saved !== false);
+  };
   return (
-    <div className="section">
-      <div className="section-head">
-        <h2>Ideas de diseños</h2>
+    <div className="idea-card">
+      <div className="idea-card-top"><span className="idea-emoji">{idea.icon}</span><h3>{idea.titulo}</h3></div>
+      <p className="idea-desc">{idea.descripcion}</p>
+      <label>Mis notas
+        <textarea rows={3} value={nota} onChange={(e) => { setNota(e.target.value); setGuardado(false); }}
+          placeholder="Anotá variantes, colores o a quién se lo querés ofrecer"
+          style={{ width: "100%", padding: "9px 11px", border: "1px solid var(--line)", borderRadius: 9, background: "var(--bg)", color: "var(--ink)", fontFamily: "inherit", fontSize: 13, resize: "vertical" }} />
+      </label>
+      <label>Enlace del diseño STL (opcional)
+        <input type="url" value={referencia} onChange={(e) => { setReferencia(e.target.value); setGuardado(false); }} placeholder="Pegá acá el enlace del modelo" />
+      </label>
+      <div className="form-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="btn-mini" onClick={guardarNotas}>{guardado ? "Notas guardadas" : "Guardar notas"}</button>
+        {idea.productId
+          ? <button type="button" className="btn-mini" onClick={() => onNavigate("productos")}>Ver producto</button>
+          : <button type="button" className="btn-mini" onClick={() => onCreateProduct({ ...idea, nota, referencia })}>Crear producto</button>}
+        <button type="button" className="btn-mini" onClick={() => onCalculate({ ...idea, nota, referencia })}>Calcular precio</button>
+        <button type="button" className="btn-mini" onClick={() => onDelete(idea.id)}>Quitar de ideas</button>
       </div>
-      <p className="ideas-intro">
-        Categorías que suelen andar bien para un taller como el tuyo (llaveros, ferias, regalería). Cada tarjeta te lleva
-        con un clic a la búsqueda en vivo de esa categoría en las librerías más grandes de STL — así siempre ves lo más
-        reciente, en vez de un link fijo que puede quedar viejo.
-      </p>
-
-      <div className="ideas-grid">
-        {IDEAS_CATEGORIAS.map((cat) => (
-          <div key={cat.id} className={`idea-card tone-chip-${cat.color}`}>
-            <div className="idea-card-top">
-              <span className="idea-emoji">{cat.icon}</span>
-              <h3>{cat.titulo}</h3>
-            </div>
-            <p className="idea-desc">{cat.descripcion}</p>
-            <div className="idea-tags">
-              {cat.tags.map((t) => (
-                <span key={t} className="idea-tag">{t}</span>
-              ))}
-            </div>
-            <div className="idea-links">
-              {enlacesBusqueda(cat.buscar).map((l) => (
-                <a key={l.nombre} href={l.url} target="_blank" rel="noopener noreferrer" className="idea-link">
-                  {l.nombre} <ExternalLink size={11} />
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <p className="ideas-footnote">
-        No podemos incrustar acá las fotos de diseños de otros creadores (son de su autoría), por eso te llevamos directo
-        a la búsqueda para que elijas vos el archivo y revises la licencia de cada uno antes de imprimir para vender.
-      </p>
     </div>
   );
 }
 
+function Ideas({ ideas = [], onSave, onUpdate, onDelete, onCreateProduct, onCalculate, onNavigate }) {
+  const guardadas = new Set(ideas.map((idea) => idea.id));
+  return (
+    <div className="section">
+      <div className="section-head"><h2>Ideas de diseños</h2></div>
+      <p className="ideas-intro">Guardá una categoría, anotá detalles o pegá el enlace de un modelo. Después podés crear un producto o calcular su precio.</p>
+      <div className="ideas-grid">
+        {IDEAS_CATEGORIAS.map((cat) => {
+          const guardada = guardadas.has(cat.id);
+          return (
+            <div key={cat.id} className={`idea-card tone-chip-${cat.color}`}>
+              <div className="idea-card-top"><span className="idea-emoji">{cat.icon}</span><h3>{cat.titulo}</h3></div>
+              <p className="idea-desc">{cat.descripcion}</p>
+              <div className="idea-tags">{cat.tags.map((t) => <span key={t} className="idea-tag">{t}</span>)}</div>
+              <div className="idea-links">
+                {enlacesBusqueda(cat.buscar).map((l) => <a key={l.nombre} href={l.url} target="_blank" rel="noopener noreferrer" className="idea-link">{l.nombre} <ExternalLink size={11} /></a>)}
+              </div>
+              <button type="button" className="btn-mini" onClick={() => onSave(cat)} disabled={guardada}>{guardada ? "Guardada en mis ideas" : "Guardar idea"}</button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 24 }}>
+        <div className="section-head"><h2>Mis ideas guardadas ({ideas.length})</h2></div>
+        {ideas.length === 0 ? <p className="empty-note">Todavía no guardaste ideas. Elegí una categoría de arriba para empezar.</p> : (
+          <div className="ideas-grid">
+            {ideas.map((idea) => <IdeaFavorita key={idea.id} idea={idea} onUpdate={onUpdate} onDelete={onDelete} onCreateProduct={onCreateProduct} onCalculate={onCalculate} onNavigate={onNavigate} />)}
+          </div>
+        )}
+      </div>
+      <p className="ideas-footnote">Antes de imprimir un modelo de otra persona para vender, revisá la licencia del archivo.</p>
+    </div>
+  );
+}
 // ============================= GENERADOR DE POSTS =============================
 function loadImg(src) {
   return new Promise((resolve, reject) => {
