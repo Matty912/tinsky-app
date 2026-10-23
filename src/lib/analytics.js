@@ -282,52 +282,75 @@ export function nivelRiesgo(dias) {
 
 // ---------- Planificador de feria ----------
 export function productosConMetadata(data) {
-  const prodPorNombre = {};
-  (data.products || []).forEach((p) => {
-    prodPorNombre[p.nombre] = p;
-  });
-  return rankingProductos(data).map((r) => {
-    const meta = prodPorNombre[r.nombre] || {};
-    return {
-      ...r,
-      tiempoImpresionHoras: num(meta.tiempoImpresionHoras),
-      pesoGramos: num(meta.pesoGramos),
-      categoria: meta.categoria && meta.categoria.trim() ? meta.categoria.trim() : "Sin categoría",
-    };
-  });
+  const ventasPorNombre = new Map(rankingProductos(data).map((venta) => [venta.nombre, venta]));
+  return (data.products || [])
+    .filter((producto) => producto.nombre && producto.nombre.trim())
+    .map((producto) => {
+      const ventas = ventasPorNombre.get(producto.nombre) || {};
+      return {
+        ...ventas,
+        id: producto.id,
+        nombre: producto.nombre,
+        unidades: num(ventas.unidades),
+        ingreso: num(ventas.ingreso),
+        costoHistorico: num(ventas.costo),
+        ganancia: num(ventas.ganancia),
+        gananciaCatalogoUnidad: num(producto.precioUnitario) - num(producto.costo),
+        tiempoImpresionHoras: num(producto.tiempoImpresionHoras),
+        pesoGramos: num(producto.pesoGramos),
+        categoria: producto.categoria && producto.categoria.trim() ? producto.categoria.trim() : "Sin categoría",
+      };
+    });
 }
 
 export function planificarFeria(data, horasDisponibles) {
-  const candidatos = productosConMetadata(data).filter((p) => p.unidades > 0);
-  if (candidatos.length === 0 || !horasDisponibles || horasDisponibles <= 0) {
+  const candidatos = productosConMetadata(data).filter((producto) => producto.tiempoImpresionHoras > 0);
+  if (candidatos.length === 0 || !Number.isFinite(Number(horasDisponibles)) || Number(horasDisponibles) <= 0) {
     return { items: [], horasUsadas: 0, gananciaEsperada: 0, gramosEstimados: 0, cantidadProductos: 0 };
   }
-  const conRatio = candidatos
-    .map((p) => {
-      const gananciaUnidad = p.unidades > 0 ? p.ganancia / p.unidades : 0;
-      const horasUnidad = p.tiempoImpresionHoras > 0 ? p.tiempoImpresionHoras : 0.5;
-      return { ...p, gananciaUnidad, horasUnidad, ratio: horasUnidad > 0 ? gananciaUnidad / horasUnidad : gananciaUnidad };
+
+  const priorizados = candidatos
+    .map((producto) => {
+      const tieneVentas = producto.unidades > 0;
+      const gananciaUnidad = tieneVentas
+        ? producto.ganancia / producto.unidades
+        : producto.gananciaCatalogoUnidad;
+      return {
+        ...producto,
+        gananciaUnidad,
+        horasUnidad: producto.tiempoImpresionHoras,
+        ratio: gananciaUnidad / producto.tiempoImpresionHoras,
+        // Para productos nuevos, propone una unidad inicial para probar en la feria.
+        cantidadObjetivo: tieneVentas ? producto.unidades : 1,
+      };
     })
     .sort((a, b) => b.ratio - a.ratio);
 
-  let horasRestantes = horasDisponibles;
+  let horasRestantes = Number(horasDisponibles);
   const items = [];
-  conRatio.forEach((p) => {
+  priorizados.forEach((producto) => {
     if (horasRestantes <= 0) return;
-    const maxPorHoras = p.horasUnidad > 0 ? Math.floor(horasRestantes / p.horasUnidad) : 0;
+    const maxPorHoras = Math.floor((horasRestantes + 1e-9) / producto.horasUnidad);
     if (maxPorHoras <= 0) return;
-    const sugerido = Math.max(1, Math.min(p.unidades, maxPorHoras));
-    const horas = sugerido * p.horasUnidad;
-    items.push({ nombre: p.nombre, cantidad: sugerido, horas, ganancia: sugerido * p.gananciaUnidad, gramos: sugerido * p.pesoGramos });
+    const cantidad = Math.min(producto.cantidadObjetivo, maxPorHoras);
+    const horas = cantidad * producto.horasUnidad;
+    items.push({
+      nombre: producto.nombre,
+      cantidad,
+      horas,
+      ganancia: cantidad * producto.gananciaUnidad,
+      gramos: cantidad * producto.pesoGramos,
+      tieneVentas: producto.unidades > 0,
+    });
     horasRestantes -= horas;
   });
 
   return {
     items,
-    horasUsadas: items.reduce((a, i) => a + i.horas, 0),
-    gananciaEsperada: items.reduce((a, i) => a + i.ganancia, 0),
-    gramosEstimados: items.reduce((a, i) => a + i.gramos, 0),
-    cantidadProductos: items.reduce((a, i) => a + i.cantidad, 0),
+    horasUsadas: items.reduce((total, item) => total + item.horas, 0),
+    gananciaEsperada: items.reduce((total, item) => total + item.ganancia, 0),
+    gramosEstimados: items.reduce((total, item) => total + item.gramos, 0),
+    cantidadProductos: items.reduce((total, item) => total + item.cantidad, 0),
   };
 }
 
