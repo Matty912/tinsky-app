@@ -412,6 +412,7 @@ export default function App() {
   const [authOk, setAuthOk] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState(storage.getSyncStatus());
+  const pendingSaveCount = useRef(0);
 
   useEffect(() => {
     if (!supabase) {
@@ -448,9 +449,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!authOk || !loaded) return undefined;
+    const warnBeforeLeave = (event) => {
+      const hasPendingChanges =
+        pendingSaveCount.current > 0 ||
+        Boolean(saveError) ||
+        ["pending", "syncing", "conflict"].includes(syncStatus.state);
+      if (!hasPendingChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeave);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeave);
+  }, [authOk, loaded, saveError, syncStatus.state]);
+
+  useEffect(() => {
     if (!authOk) return;
     const handleOnline = () => storage.syncPending();
-    const handleOffline = () => setSyncStatus({ state: "offline", message: "Sin conexión. Los cambios se guardan en este dispositivo." });
+    const handleOffline = () => setSyncStatus((current) => ["pending", "syncing", "conflict"].includes(current.state) ? current : { state: "offline", message: "Sin conexión. Los cambios se guardan en este dispositivo." });
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     if (!navigator.onLine) handleOffline();
@@ -541,6 +557,7 @@ export default function App() {
   }, [cargarDatos]);
 
   const persist = useCallback(async (next) => {
+    pendingSaveCount.current += 1;
     setData(next);
     try {
       await storage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -550,6 +567,8 @@ export default function App() {
       console.error("No se pudo guardar", e);
       setSaveError(e.message || "No se pudo guardar el último cambio.");
       return false;
+    } finally {
+      pendingSaveCount.current = Math.max(0, pendingSaveCount.current - 1);
     }
   }, []);
 
@@ -726,6 +745,11 @@ export default function App() {
             <button
               className="theme-toggle"
               onClick={async () => {
+                const hasPendingChanges =
+                  pendingSaveCount.current > 0 ||
+                  Boolean(saveError) ||
+                  ["pending", "syncing", "conflict"].includes(syncStatus.state);
+                if (hasPendingChanges && !window.confirm("Tenés cambios guardados en este dispositivo que todavía no se sincronizaron con la nube. Si cerrás sesión, no se van a ver en otros dispositivos hasta que se sincronicen. ¿Querés cerrar sesión igual?")) return;
                 storage.clearOfflineUser();
                 await supabase.auth.signOut();
               }}
