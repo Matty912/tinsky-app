@@ -281,12 +281,35 @@ export function nivelRiesgo(dias) {
 }
 
 // ---------- Planificador de feria ----------
+function metadatosDePedidos(data) {
+  const porNombre = new Map();
+  (data.orders || []).forEach((pedido) => {
+    const nombre = (pedido.producto || pedido.nombre || "").trim().toLocaleLowerCase("es");
+    const horas = num(pedido.tiempoEstimado);
+    const gramos = num(pedido.pesoEstimado);
+    if (!nombre || (horas <= 0 && gramos <= 0)) return;
+    const unidades = Math.max(1, num(pedido.cantidad) || 1);
+    const actual = porNombre.get(nombre) || { unidades: 0, horas: 0, gramos: 0 };
+    actual.unidades += unidades;
+    actual.horas += horas;
+    actual.gramos += gramos;
+    porNombre.set(nombre, actual);
+  });
+  return porNombre;
+}
+
 export function productosConMetadata(data) {
   const ventasPorNombre = new Map(rankingProductos(data).map((venta) => [venta.nombre, venta]));
+  const pedidosPorNombre = metadatosDePedidos(data);
   return (data.products || [])
     .filter((producto) => producto.nombre && producto.nombre.trim())
     .map((producto) => {
       const ventas = ventasPorNombre.get(producto.nombre) || {};
+      const pedido = pedidosPorNombre.get(producto.nombre.trim().toLocaleLowerCase("es"));
+      const horasPedidoUnidad = pedido && pedido.horas > 0 ? pedido.horas / pedido.unidades : 0;
+      const gramosPedidoUnidad = pedido && pedido.gramos > 0 ? pedido.gramos / pedido.unidades : 0;
+      const horasGuardadas = num(producto.tiempoImpresionHoras);
+      const gramosGuardados = num(producto.pesoGramos);
       return {
         ...ventas,
         id: producto.id,
@@ -296,8 +319,10 @@ export function productosConMetadata(data) {
         costoHistorico: num(ventas.costo),
         ganancia: num(ventas.ganancia),
         gananciaCatalogoUnidad: num(producto.precioUnitario) - num(producto.costo),
-        tiempoImpresionHoras: num(producto.tiempoImpresionHoras),
-        pesoGramos: num(producto.pesoGramos),
+        tiempoImpresionHoras: horasGuardadas || horasPedidoUnidad,
+        pesoGramos: gramosGuardados || gramosPedidoUnidad,
+        tiempoDesdePedido: horasGuardadas <= 0 && horasPedidoUnidad > 0,
+        pesoDesdePedido: gramosGuardados <= 0 && gramosPedidoUnidad > 0,
         categoria: producto.categoria && producto.categoria.trim() ? producto.categoria.trim() : "Sin categoría",
       };
     });
@@ -341,6 +366,8 @@ export function planificarFeria(data, horasDisponibles) {
       ganancia: cantidad * producto.gananciaUnidad,
       gramos: cantidad * producto.pesoGramos,
       tieneVentas: producto.unidades > 0,
+      tiempoDesdePedido: producto.tiempoDesdePedido,
+      pesoDesdePedido: producto.pesoDesdePedido,
     });
     horasRestantes -= horas;
   });
