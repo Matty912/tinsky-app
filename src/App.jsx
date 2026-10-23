@@ -1424,8 +1424,20 @@ function PlanificadorFeria({ data }) {
   const [impresoras, setImpresoras] = useState(1);
 
   const hoy = new Date();
-  const diasFaltantes = fechaFeria ? Math.max(0, Math.ceil((new Date(fechaFeria) - hoy) / (1000 * 60 * 60 * 24))) : 0;
-  const horasDisponibles = diasFaltantes * Number(horasPorDia || 0) * Number(impresoras || 1);
+  hoy.setHours(0, 0, 0, 0);
+  const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  const fechaSeleccionada = fechaFeria
+    ? (() => {
+        const [anio, mes, dia] = fechaFeria.split("-").map(Number);
+        return new Date(anio, mes - 1, dia);
+      })()
+    : null;
+  const diasFaltantes = fechaSeleccionada
+    ? Math.max(0, Math.round((fechaSeleccionada.getTime() - hoy.getTime()) / 86400000))
+    : 0;
+  const horasDiarias = Math.max(0, Number(horasPorDia) || 0);
+  const cantidadImpresoras = Math.max(1, Math.floor(Number(impresoras) || 1));
+  const horasDisponibles = diasFaltantes * horasDiarias * cantidadImpresoras;
 
   const plan = useMemo(() => A.planificarFeria(data, horasDisponibles), [data, horasDisponibles]);
 
@@ -1439,7 +1451,7 @@ function PlanificadorFeria({ data }) {
         <div className="form-row">
           <label>
             Fecha de la feria
-            <input type="date" value={fechaFeria} onChange={(e) => setFechaFeria(e.target.value)} />
+            <input type="date" min={hoyISO} value={fechaFeria} onChange={(e) => setFechaFeria(e.target.value)} />
           </label>
           <label>
             Horas que podés imprimir por día
@@ -1447,40 +1459,44 @@ function PlanificadorFeria({ data }) {
           </label>
           <label>
             Impresoras disponibles
-            <input type="number" min="1" value={impresoras} onChange={(e) => setImpresoras(e.target.value)} />
+            <input type="number" min="1" step="1" value={impresoras} onChange={(e) => setImpresoras(e.target.value)} />
           </label>
         </div>
         {fechaFeria && (
           <p className="hint">
-            💡 Faltan {diasFaltantes} día{diasFaltantes !== 1 ? "s" : ""} → tenés aproximadamente <strong>{horasDisponibles.toFixed(0)} horas</strong> disponibles de impresión.
+            💡 Faltan {diasFaltantes} día{diasFaltantes !== 1 ? "s" : ""} → tenés aproximadamente <strong>{horasDisponibles.toFixed(1)} horas</strong> disponibles de impresión.
           </p>
         )}
       </div>
 
       {!fechaFeria ? (
-        <p className="empty-note">Elegí una fecha de feria para ver la sugerencia de producción.</p>
+        <p className="empty-note">Elegí la fecha de la feria para calcular cuánto podés preparar.</p>
+      ) : horasDisponibles <= 0 ? (
+        <p className="empty-note">Para esta fecha no quedan horas de producción disponibles. Revisá las horas por día y la cantidad de impresoras.</p>
       ) : plan.items.length === 0 ? (
-        <p className="empty-note">Todavía no tengo ventas históricas suficientes (o no cargaste tiempo de impresión en tus productos) como para armar una sugerencia. Cargá "tiempo de impresión" en tus productos para mejores resultados.</p>
+        <p className="empty-note">No encontré productos con tiempo de impresión cargado. Abrí Productos y agregá el tiempo de impresión de cada modelo para poder calcular el plan.</p>
       ) : (
         <>
           <div className="cards-grid" style={{ marginBottom: 16 }}>
             <StatCard label="Horas a usar" value={`${plan.horasUsadas.toFixed(1)}h`} icon={Clock} tone="teal" />
-            <StatCard label="Ganancia esperada" value={formatARS(plan.gananciaEsperada)} icon={TrendingUp} tone="success" mono />
-            <StatCard label="Cantidad de productos" value={plan.cantidadProductos} icon={Package} tone="accent" />
+            <StatCard label="Ganancia estimada si vendés todo" value={formatARS(plan.gananciaEsperada)} icon={TrendingUp} tone="success" mono />
+            <StatCard label="Unidades para preparar" value={plan.cantidadProductos} icon={Package} tone="accent" />
             <StatCard label="Filamento estimado" value={plan.gramosEstimados > 0 ? `${(plan.gramosEstimados / 1000).toFixed(2)}kg` : "sin datos de peso"} icon={Layers} tone="violet" />
           </div>
+
+          <p className="hint">La sugerencia ordena los productos por rentabilidad y usa tus ventas como referencia. Los modelos sin ventas registradas aparecen con una unidad inicial. La ganancia es potencial: supone que vendés todo lo preparado.</p>
 
           <div className="panel">
             <h3>Sugerencia de producción</h3>
             <div className="list">
-              {plan.items.map((it) => (
-                <div key={it.nombre} className="row-card">
+              {plan.items.map((item) => (
+                <div key={item.nombre} className="row-card">
                   <div className="row-main">
-                    <p className="row-title">{it.nombre} <span className="dim">×{it.cantidad}</span></p>
-                    <p className="row-sub">{it.horas.toFixed(1)}h de impresión{it.gramos > 0 ? ` · ${it.gramos}g` : ""}</p>
+                    <p className="row-title">{item.nombre} <span className="dim">×{item.cantidad}</span></p>
+                    <p className="row-sub">{item.horas.toFixed(1)}h de impresión{item.gramos > 0 ? ` · ${item.gramos}g` : ""}{!item.tieneVentas ? " · producto nuevo" : ""}</p>
                   </div>
                   <div className="row-side">
-                    <p className="mono price">{formatARS(it.ganancia)}</p>
+                    <p className="mono price">{formatARS(item.ganancia)}</p>
                   </div>
                 </div>
               ))}
