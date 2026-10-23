@@ -599,6 +599,10 @@ export default function App() {
 
   const addProduct = (item) => persist({ ...data, products: [...data.products, { id: uid(), ...item }] });
   const updateProduct = (id, patch) => persist({ ...data, products: data.products.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+  const updateProducts = (patches) => persist({
+    ...data,
+    products: data.products.map((product) => ({ ...product, ...(patches[product.id] || {}) })),
+  });
   const deleteProduct = (id) => persist({ ...data, products: data.products.filter((p) => p.id !== id) });
 
   const addPurchase = (item) => persist({ ...data, purchases: [...data.purchases, { id: uid(), fecha: item.fecha || todayISO(), ...item }] });
@@ -862,7 +866,7 @@ export default function App() {
             ) : tab === "estadisticas" ? (
               <Estadisticas data={data} />
             ) : tab === "feria" ? (
-              <PlanificadorFeria data={data} />
+              <PlanificadorFeria data={data} updateProducts={updateProducts} />
             ) : tab === "calendario" ? (
               <CalendarioInteligente data={data} updateOrder={updateOrder} updateConfig={updateConfig} />
             ) : tab === "presupuestos" ? (
@@ -1418,14 +1422,22 @@ function Asistente({ data }) {
 }
 
 // ============================= PLANIFICADOR DE FERIA =============================
-function PlanificadorFeria({ data }) {
+function PlanificadorFeria({ data, updateProducts }) {
   const [fechaFeria, setFechaFeria] = useState("");
   const [horasPorDia, setHorasPorDia] = useState(4);
   const [impresoras, setImpresoras] = useState(1);
+  const [importItems, setImportItems] = useState([]);
+  const [importMessage, setImportMessage] = useState("");
+  const [savingImport, setSavingImport] = useState(false);
+  const products = data.products || [];
 
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
-  const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  const hoyISO = [
+    hoy.getFullYear(),
+    String(hoy.getMonth() + 1).padStart(2, "0"),
+    String(hoy.getDate()).padStart(2, "0"),
+  ].join("-");
   const fechaSeleccionada = fechaFeria
     ? (() => {
         const [anio, mes, dia] = fechaFeria.split("-").map(Number);
@@ -1435,38 +1447,166 @@ function PlanificadorFeria({ data }) {
   const diasFaltantes = fechaSeleccionada
     ? Math.max(0, Math.round((fechaSeleccionada.getTime() - hoy.getTime()) / 86400000))
     : 0;
-  const horasDiarias = Math.max(0, Number(horasPorDia) || 0);
-  const cantidadImpresoras = Math.max(1, Math.floor(Number(impresoras) || 1));
-  const horasDisponibles = diasFaltantes * horasDiarias * cantidadImpresoras;
-
+  const horasDisponibles = diasFaltantes * Math.max(0, Number(horasPorDia) || 0) * Math.max(1, Math.floor(Number(impresoras) || 1));
   const plan = useMemo(() => A.planificarFeria(data, horasDisponibles), [data, horasDisponibles]);
+
+  const normalizar = (texto) => (texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es")
+    .replace(/[^a-z0-9]/g, "");
+
+  const analizarGcode = async (event) => {
+    const archivos = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!archivos.length) return;
+    setImportMessage("Leyendo archivos…");
+    const resultados = [];
+    const errores = [];
+    for (const archivo of archivos) {
+      try {
+        const contenido = await archivo.slice(0, 512 * 1024).text();
+        const lineaTiempo = contenido.match(/;\s*estimated printing time(?:\s*\([^)]*\))?\s*=\s*([^\r\n]+)/i)?.[1] || "";
+        const lineaGramos = contenido.match(/;\s*total filament used\s*\[g\]\s*=\s*([^\r\n]+)/i)?.[1];
+        const lineasFilamento = [...contenido.matchAll(/^;\s*filament used\s*\[g\]\s*=\s*([^\r\n]+)/gim)].map((match) => match[1]);
+        const sumarNumeros = (linea) => (linea.match(/\d+(?:\.\d+)?/g) || []).reduce((suma, numero) => suma + Number(numero), 0);
+        const gramos = lineaGramos ? sumarNumeros(lineaGramos) : lineasFilamento.reduce((suma, linea) => suma + sumarNumeros(linea), 0);
+        const partesTiempo = [...lineaTiempo.matchAll(/(\d+(?:\.\d+)?)\s*(d|days?|h|hours?|m|min(?:utes?)?|s|sec(?:onds?)?)/gi)];
+        let segundos = partesTiempo.reduce((suma, [, valor, unidad]) => {
+          const letra = unidad.toLowerCase();
+          return suma + Number(valor) * (letra.startsWith("d") ? 86400 : letra.startsWith("h") ? 3600 : letra.startsWith("m") ? 60 : 1);
+        }, 0);
+        if (!partesTiempo.length && /^\d{1,3}:\d{2}:\d{2}$/.test(lineaTiempo.trim())) {
+          const [horas, minutos, seg] = lineaTiempo.trim().split(":").map(Number);
+          segundos = horas * 3600 + minutos * 60 + seg;
+        }
+        if (segundos <= 0) {
+          errores.push(archivo.name + ": no encontré el tiempo de impresión");
+          continue;
+        }
+        const nombreNormalizado = normalizar(archivo.name.replace(/\.[^.]+$/, ""));
+        const exacto = products.find((producto) => normalizar(producto.nombre) === nombreNormalizado);
+        const coincidencias = exacto ? [exacto] : products.filter((producto) => {
+          const nombre = normalizar(producto.nombre);
+          return nombre.length >= 4 && nombreNormalizado.length >= 4 && (nombreNormalizado.includes(nombre) || nombre.includes(nombreNormalizado));
+        });
+        resultados.push({
+          key: uid(),
+          fileName: archivo.name,
+          productId: coincidencias.length === 1 ? coincidencias[0].id : "",
+          horasTotal: segundos / 3600,
+          gramosTotal: gramos,
+          unidades: 1,
+        });
+      } catch {
+        errores.push(archivo.name + ": no se pudo leer");
+      }
+    }
+    setImportItems(resultados);
+    setImportMessage([
+      resultados.length ? "Leí " + resultados.length + " archivo(s)." : "",
+      errores.length ? errores.join(" · ") : "",
+    ].filter(Boolean).join(" "));
+  };
+
+  const actualizarImportItem = (key, patch) => {
+    setImportItems((items) => items.map((item) => item.key === key ? { ...item, ...patch } : item));
+  };
+
+  const guardarTiemposImportados = async () => {
+    const asignados = importItems.filter((item) => item.productId);
+    if (!asignados.length) {
+      setImportMessage("Vinculá cada archivo con un producto antes de guardar.");
+      return;
+    }
+    const ids = asignados.map((item) => item.productId);
+    if (new Set(ids).size !== ids.length) {
+      setImportMessage("Cada producto puede vincularse a un solo archivo por vez. Corregí los productos repetidos.");
+      return;
+    }
+    const parches = {};
+    asignados.forEach((item) => {
+      const unidades = Math.max(1, Math.floor(Number(item.unidades) || 1));
+      const producto = products.find((candidate) => candidate.id === item.productId);
+      if (!producto || Number(producto.tiempoImpresionHoras) > 0) return;
+      parches[producto.id] = {
+        tiempoImpresionHoras: Math.round((item.horasTotal / unidades) * 100) / 100,
+        ...(Number(producto.pesoGramos) > 0 || item.gramosTotal <= 0 ? {} : {
+          pesoGramos: Math.round((item.gramosTotal / unidades) * 100) / 100,
+        }),
+      };
+    });
+    const cantidad = Object.keys(parches).length;
+    if (!cantidad) {
+      setImportMessage("No había productos pendientes para completar. Los tiempos existentes se conservaron.");
+      return;
+    }
+    setSavingImport(true);
+    try {
+      const guardado = await updateProducts(parches);
+      if (guardado === false) {
+        setImportMessage("No se pudieron guardar los datos. Revisá la conexión y volvé a intentar.");
+      } else {
+        setImportMessage("Listo: completé " + cantidad + " producto(s). Los tiempos se dividieron por la cantidad de piezas indicada en cada archivo.");
+        setImportItems([]);
+      }
+    } catch (error) {
+      setImportMessage(error.message || "No se pudieron guardar los datos.");
+    } finally {
+      setSavingImport(false);
+    }
+  };
 
   return (
     <div className="section">
-      <div className="section-head">
-        <h2>Planificador de Feria</h2>
+      <div className="section-head"><h2>Planificador de Feria</h2></div>
+      <div className="form-card no-grid">
+        <div className="form-row">
+          <label>Fecha de la feria<input type="date" min={hoyISO} value={fechaFeria} onChange={(e) => setFechaFeria(e.target.value)} /></label>
+          <label>Horas que podés imprimir por día<input type="number" min="0" step="0.5" value={horasPorDia} onChange={(e) => setHorasPorDia(e.target.value)} /></label>
+          <label>Impresoras disponibles<input type="number" min="1" step="1" value={impresoras} onChange={(e) => setImpresoras(e.target.value)} /></label>
+        </div>
+        {fechaFeria && <p className="hint">💡 Faltan {diasFaltantes} día{diasFaltantes !== 1 ? "s" : ""} → tenés aproximadamente <strong>{horasDisponibles.toFixed(1)} horas</strong> disponibles de impresión.</p>}
       </div>
 
       <div className="form-card no-grid">
-        <div className="form-row">
-          <label>
-            Fecha de la feria
-            <input type="date" min={hoyISO} value={fechaFeria} onChange={(e) => setFechaFeria(e.target.value)} />
-          </label>
-          <label>
-            Horas que podés imprimir por día
-            <input type="number" min="0" step="0.5" value={horasPorDia} onChange={(e) => setHorasPorDia(e.target.value)} />
-          </label>
-          <label>
-            Impresoras disponibles
-            <input type="number" min="1" step="1" value={impresoras} onChange={(e) => setImpresoras(e.target.value)} />
-          </label>
-        </div>
-        {fechaFeria && (
-          <p className="hint">
-            💡 Faltan {diasFaltantes} día{diasFaltantes !== 1 ? "s" : ""} → tenés aproximadamente <strong>{horasDisponibles.toFixed(1)} horas</strong> disponibles de impresión.
-          </p>
-        )}
+        <h3>Completar tiempos de varios productos</h3>
+        <p className="hint">Elegí varios G-code exportados del laminador. Si un archivo tiene varias piezas iguales, indicá cuántas para dividir el tiempo y el filamento por producto.</p>
+        <label className="btn-secondary" style={{ display: "inline-flex", width: "fit-content", cursor: savingImport ? "wait" : "pointer" }}>
+          <FileText size={14} /> Seleccionar archivos G-code
+          <input type="file" accept=".gcode,.gco,.gc" multiple disabled={savingImport} onChange={analizarGcode} style={{ display: "none" }} />
+        </label>
+        {importItems.map((item) => {
+          const usadosPorOtros = new Set(importItems.filter((otro) => otro.key !== item.key).map((otro) => otro.productId).filter(Boolean));
+          const unidades = Math.max(1, Math.floor(Number(item.unidades) || 1));
+          const producto = products.find((candidate) => candidate.id === item.productId);
+          return (
+            <div key={item.key} className="extra-row">
+              <strong>{item.fileName}</strong>
+              <div className="form-row">
+                <label>Producto
+                  <select value={item.productId} onChange={(e) => actualizarImportItem(item.key, { productId: e.target.value })}>
+                    <option value="">Elegir producto</option>
+                    {products.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id} disabled={candidate.id !== item.productId && (usadosPorOtros.has(candidate.id) || Number(candidate.tiempoImpresionHoras) > 0)}>
+                        {candidate.nombre}{Number(candidate.tiempoImpresionHoras) > 0 ? " · ya tiene horas" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>Piezas iguales en el archivo
+                  <input type="number" min="1" step="1" value={item.unidades} onChange={(e) => actualizarImportItem(item.key, { unidades: e.target.value })} />
+                </label>
+              </div>
+              <p className="hint">
+                Archivo: {item.horasTotal.toFixed(2)} h{item.gramosTotal > 0 ? " · " + item.gramosTotal.toFixed(1) + " g" : ""}
+                {producto ? " → por producto: " + (item.horasTotal / unidades).toFixed(2) + " h" + (item.gramosTotal > 0 ? " · " + (item.gramosTotal / unidades).toFixed(1) + " g" : "") : ""}
+              </p>
+            </div>
+          );
+        })}
+        {importItems.length > 0 && <button type="button" className="btn-accent" onClick={guardarTiemposImportados} disabled={savingImport}>{savingImport ? "Guardando…" : "Guardar datos de " + importItems.filter((item) => item.productId).length + " producto(s)"}</button>}
+        {importMessage && <p className="hint" role="status">{importMessage}</p>}
       </div>
 
       {!fechaFeria ? (
@@ -1474,18 +1614,16 @@ function PlanificadorFeria({ data }) {
       ) : horasDisponibles <= 0 ? (
         <p className="empty-note">Para esta fecha no quedan horas de producción disponibles. Revisá las horas por día y la cantidad de impresoras.</p>
       ) : plan.items.length === 0 ? (
-        <p className="empty-note">No encontré productos con tiempo de impresión cargado. Abrí Productos y agregá el tiempo de impresión de cada modelo para poder calcular el plan.</p>
+        <p className="empty-note">Todavía no hay productos con horas. Podés completar varios de una vez con los archivos G-code exportados del laminador.</p>
       ) : (
         <>
           <div className="cards-grid" style={{ marginBottom: 16 }}>
-            <StatCard label="Horas a usar" value={`${plan.horasUsadas.toFixed(1)}h`} icon={Clock} tone="teal" />
+            <StatCard label="Horas a usar" value={plan.horasUsadas.toFixed(1) + "h"} icon={Clock} tone="teal" />
             <StatCard label="Ganancia estimada si vendés todo" value={formatARS(plan.gananciaEsperada)} icon={TrendingUp} tone="success" mono />
             <StatCard label="Unidades para preparar" value={plan.cantidadProductos} icon={Package} tone="accent" />
-            <StatCard label="Filamento estimado" value={plan.gramosEstimados > 0 ? `${(plan.gramosEstimados / 1000).toFixed(2)}kg` : "sin datos de peso"} icon={Layers} tone="violet" />
+            <StatCard label="Filamento estimado" value={plan.gramosEstimados > 0 ? (plan.gramosEstimados / 1000).toFixed(2) + "kg" : "sin datos de peso"} icon={Layers} tone="violet" />
           </div>
-
-          <p className="hint">La sugerencia ordena los productos por rentabilidad y usa tus ventas como referencia. Los modelos sin ventas registradas aparecen con una unidad inicial. La ganancia es potencial: supone que vendés todo lo preparado.</p>
-
+          <p className="hint">La sugerencia ordena los productos por rentabilidad y usa tus ventas como referencia. Los modelos sin ventas aparecen con una unidad inicial; la ganancia supone que vendés todo lo preparado.</p>
           <div className="panel">
             <h3>Sugerencia de producción</h3>
             <div className="list">
@@ -1493,11 +1631,9 @@ function PlanificadorFeria({ data }) {
                 <div key={item.nombre} className="row-card">
                   <div className="row-main">
                     <p className="row-title">{item.nombre} <span className="dim">×{item.cantidad}</span></p>
-                    <p className="row-sub">{item.horas.toFixed(1)}h de impresión{item.gramos > 0 ? ` · ${item.gramos}g` : ""}{item.tiempoDesdePedido ? " · horas recuperadas de pedidos" : ""}{item.pesoDesdePedido ? " · peso recuperado de pedidos" : ""}{!item.tieneVentas ? " · producto nuevo" : ""}</p>
+                    <p className="row-sub">{item.horas.toFixed(1)}h de impresión{item.gramos > 0 ? " · " + item.gramos + "g" : ""}{item.tiempoDesdePedido ? " · horas recuperadas de pedidos" : ""}{item.pesoDesdePedido ? " · peso recuperado de pedidos" : ""}{!item.tieneVentas ? " · producto nuevo" : ""}</p>
                   </div>
-                  <div className="row-side">
-                    <p className="mono price">{formatARS(item.ganancia)}</p>
-                  </div>
+                  <div className="row-side"><p className="mono price">{formatARS(item.ganancia)}</p></div>
                 </div>
               ))}
             </div>
